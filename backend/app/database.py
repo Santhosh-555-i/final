@@ -744,6 +744,9 @@ class DatabaseService:
             except Exception:
                 return []
 
+    def get_event_clusters(self, event_id: str) -> List[Dict]:
+        return self.get_clusters_for_event(event_id)
+
     # --- SECURE TEMPORARY SHARING TOKENS ---
     def create_share_token(self, event_id: str, photo_ids: List[str], expiry_hours: int = 48) -> str:
         import secrets
