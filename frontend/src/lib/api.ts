@@ -419,48 +419,19 @@ export async function importGoogleDrive(
   eventId: string,
   driveLink: string
 ): Promise<{ success: boolean; imported_count: number; total_faces: number; message: string }> {
-  try {
-    const res = await fetch(`${getApiBaseUrl()}/events/import-drive`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event_id: eventId,
-        drive_link: driveLink.trim(),
-      }),
-    });
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch {
-    // Fallback
+  const res = await fetch(`${getApiBaseUrl()}/events/import-drive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      event_id: eventId,
+      drive_link: driveLink.trim(),
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to download photos from Google Drive. Please ensure the folder sharing is set to 'Anyone with the link can view' (Public).");
   }
-
-  // Update event & add photos
-  const events = getStoredEvents();
-  const target = events.find((e) => e.id === eventId || e.event_code === eventId);
-  const addCount = 8;
-  if (target) {
-    target.drive_link = driveLink.trim();
-    target.photo_count = (target.photo_count || 0) + addCount;
-    saveStoredEvents(events);
-  }
-
-  const photos = getStoredPhotos();
-  const additions: PhotoData[] = INITIAL_DEMO_PHOTOS.map((p, i) => ({
-    ...p,
-    id: `drive-photo-${Date.now()}-${i}`,
-    event_id: target?.id || eventId,
-    created_at: new Date().toISOString(),
-  }));
-  photos.push(...additions);
-  saveStoredPhotos(photos);
-
-  return {
-    success: true,
-    imported_count: addCount,
-    total_faces: 14,
-    message: `Successfully imported ${addCount} photos from Google Drive. Deep Neural Face vectors extracted!`,
-  };
+  return await res.json();
 }
 
 export async function getEventByCode(code: string): Promise<EventData> {
@@ -613,46 +584,28 @@ export async function syncDriveAdmin(
   eventId?: string,
   eventCode?: string
 ): Promise<{ success: boolean; task_id: string; event_id: string; status: string; message: string }> {
-  try {
-    const res = await fetch(`${getApiBaseUrl()}/admin/sync-drive`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        drive_link: driveLink.trim(),
-        event_id: eventId || null,
-        event_code: eventCode || null,
-      }),
-    });
-    if (res.ok) {
-      return await res.json();
-    }
-  } catch {
-    // Fallback
+  const res = await fetch(`${getApiBaseUrl()}/admin/sync-drive`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      drive_link: driveLink.trim(),
+      event_id: eventId || null,
+      event_code: eventCode || null,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to start Google Drive sync.");
   }
-
-  // Instant simulation
-  await importGoogleDrive(eventId || eventCode || "event-tech-conf-2026", driveLink);
-  return {
-    success: true,
-    task_id: `task-${Date.now()}`,
-    event_id: eventId || "event-tech-conf-2026",
-    status: "completed",
-    message: "Google Drive synchronized successfully with 8 high-resolution photos indexed!",
-  };
+  return await res.json();
 }
 
 export async function getSyncStatus(taskId: string): Promise<SyncTaskStatus> {
-  return {
-    task_id: taskId,
-    event_id: "event-tech-conf-2026",
-    status: "completed",
-    progress_message: "All Google Drive photos downloaded, indexed, and clustered.",
-    current: 8,
-    total: 8,
-    faces_detected: 14,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-  };
+  const res = await fetch(`${getApiBaseUrl()}/admin/sync-status/${taskId}`);
+  if (!res.ok) {
+    throw new Error("Failed to fetch sync status");
+  }
+  return await res.json();
 }
 
 export async function getAdminStats(eventId: string): Promise<AdminStatsData> {
