@@ -1,29 +1,27 @@
 export const PRODUCTION_RENDER_BACKEND = "https://photo-0fcg.onrender.com";
 
 export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      return `${PRODUCTION_RENDER_BACKEND}/api`;
+    }
+  }
   if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL !== "/api") {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-  if (typeof window !== "undefined") {
-    if (window.location.hostname.includes("github.io")) {
-      return `${PRODUCTION_RENDER_BACKEND}/api`;
-    }
-    return "/api";
-  }
-  return process.env.BACKEND_INTERNAL_URL ? `${process.env.BACKEND_INTERNAL_URL}/api` : `${PRODUCTION_RENDER_BACKEND}/api`;
+  return "/api";
 }
 
 export function getBackendUrl(): string {
+  if (typeof window !== "undefined") {
+    if (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1") {
+      return PRODUCTION_RENDER_BACKEND;
+    }
+  }
   if (process.env.NEXT_PUBLIC_BACKEND_URL) {
     return process.env.NEXT_PUBLIC_BACKEND_URL;
   }
-  if (typeof window !== "undefined") {
-    if (window.location.hostname.includes("github.io")) {
-      return PRODUCTION_RENDER_BACKEND;
-    }
-    return "";
-  }
-  return process.env.BACKEND_INTERNAL_URL || PRODUCTION_RENDER_BACKEND;
+  return "";
 }
 
 export const API_BASE_URL = "/api";
