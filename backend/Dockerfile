@@ -1,7 +1,6 @@
 # Production Dockerfile for EventLens AI Backend
 FROM python:3.10-slim
 
-# Prevent Python from writing .pyc files and buffer stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
@@ -14,12 +13,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install CPU-optimized Python dependencies
-COPY requirements-cpu.txt requirements.txt /app/
+COPY requirements.txt requirements-cpu.txt /app/
 RUN pip install --no-cache-dir -U pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements-cpu.txt
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Pre-download and cache FaceNet (VGGFace2) weights into the Docker layer
-# This avoids runtime cold-start download delays on first request
 RUN python -c "from facenet_pytorch import InceptionResnetV1; InceptionResnetV1(pretrained='vggface2').eval()"
 
 # Copy backend application source code

@@ -12,12 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install CPU-optimized Python dependencies
-COPY backend/requirements-cpu.txt backend/requirements.txt /app/
-RUN pip install --no-cache-dir -U pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements-cpu.txt
+# Copy requirements
+COPY backend/requirements.txt backend/requirements-cpu.txt /app/
 
-# Pre-download and cache FaceNet (VGGFace2) weights into Docker layer to ensure fast startup
+# Install pip tooling, CPU-optimized torch, and dependencies
+RUN pip install --no-cache-dir -U pip setuptools wheel && \
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Pre-download and cache FaceNet (VGGFace2) weights into Docker layer to ensure instant startup
 RUN python -c "from facenet_pytorch import InceptionResnetV1; InceptionResnetV1(pretrained='vggface2').eval()"
 
 # Copy backend application source code
