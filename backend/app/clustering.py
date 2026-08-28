@@ -25,7 +25,7 @@ class FaceClusteringEngine:
                 actual_event_id = ev_res.data[0]["id"]
 
             emb_res = supabase.table("face_embeddings").select(
-                "id, photo_id, embedding, bounding_box, cluster_id"
+                "id, photo_id, embedding, bounding_box"
             ).eq("event_id", actual_event_id).execute()
             
             raw_embs = emb_res.data or []
@@ -117,9 +117,12 @@ class FaceClusteringEngine:
 
         existing_clusters = {}
         if settings.DB_MODE == "supabase":
-            c_res = supabase.table("person_clusters").select("id, name, thumbnail_url").eq("event_id", actual_event_id).execute()
-            for r in (c_res.data or []):
-                existing_clusters[r["id"]] = r
+            try:
+                c_res = supabase.table("person_clusters").select("id, name, thumbnail_url").eq("event_id", actual_event_id).execute()
+                for r in (c_res.data or []):
+                    existing_clusters[r["id"]] = r
+            except Exception:
+                pass
         else:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
@@ -168,15 +171,21 @@ class FaceClusteringEngine:
                     }
 
             if settings.DB_MODE == "supabase":
-                supabase.table("person_clusters").upsert({
-                    "id": assigned_id,
-                    "event_id": actual_event_id,
-                    "name": cluster_name,
-                    "thumbnail_url": rep_thumb,
-                    "created_at": now_str
-                }).execute()
-                for c_idx in comp:
-                    supabase.table("face_embeddings").update({"cluster_id": assigned_id}).eq("id", valid_rows[c_idx]["emb_id"]).execute()
+                try:
+                    supabase.table("person_clusters").upsert({
+                        "id": assigned_id,
+                        "event_id": actual_event_id,
+                        "name": cluster_name,
+                        "thumbnail_url": rep_thumb,
+                        "created_at": now_str
+                    }).execute()
+                except Exception:
+                    pass
+                try:
+                    for c_idx in comp:
+                        supabase.table("face_embeddings").update({"cluster_id": assigned_id}).eq("id", valid_rows[c_idx]["emb_id"]).execute()
+                except Exception:
+                    pass
             else:
                 conn = sqlite3.connect(self.db_path)
                 cursor = conn.cursor()
@@ -206,59 +215,65 @@ class FaceClusteringEngine:
         actual_event_id = event_id
         if settings.DB_MODE == "supabase":
             supabase = self._get_supabase()
-            ev_res = supabase.table("events").select("id").or_(f"id.eq.{event_id},event_code.ilike.{event_id}").limit(1).execute()
-            if ev_res.data:
-                actual_event_id = ev_res.data[0]["id"]
-            
-            c_res = supabase.table("person_clusters").select("*").eq("event_id", actual_event_id).order("name").execute()
-            c_rows = c_res.data or []
-            if not c_rows:
+            try:
+                ev_res = supabase.table("events").select("id").or_(f"id.eq.{event_id},event_code.ilike.{event_id}").limit(1).execute()
+                if ev_res.data:
+                    actual_event_id = ev_res.data[0]["id"]
+                
+                c_res = supabase.table("person_clusters").select("*").eq("event_id", actual_event_id).order("name").execute()
+                c_rows = c_res.data or []
+                if not c_rows:
+                    return self.compute_event_clusters(actual_event_id)
+            except Exception:
                 return self.compute_event_clusters(actual_event_id)
 
-            results = []
-            for c in c_rows:
-                cid = c["id"]
-                faces_res = supabase.table("face_embeddings").select("id, photo_id, bounding_box").eq("cluster_id", cid).execute()
-                faces = faces_res.data or []
-                photo_ids = list({f["photo_id"] for f in faces if f.get("photo_id")})
-                p_map = {}
-                if photo_ids:
-                    try:
-                        p_res = supabase.table("photos").select("id, image_url, thumbnail_url, created_at").in_("id", photo_ids).execute()
-                        for p in (p_res.data or []):
-                            p_map[p["id"]] = p
-                    except Exception:
-                        pass
-                
-                photo_set = {}
-                for f in faces:
-                    pid = f["photo_id"]
-                    p = p_map.get(pid, {})
-                    if pid not in photo_set:
-                        bbox = f.get("bounding_box")
-                        if isinstance(bbox, str):
-                            try:
-                                bbox = json.loads(bbox)
-                            except Exception:
-                                pass
-                        photo_set[pid] = {
-                            "photo_id": pid,
-                            "image_url": p.get("image_url"),
-                            "thumbnail_url": p.get("thumbnail_url"),
-                            "bounding_box": bbox,
-                            "created_at": p.get("created_at")
-                        }
-                
-                results.append({
-                    "cluster_id": cid,
-                    "event_id": actual_event_id,
-                    "name": c["name"],
-                    "thumbnail_url": c.get("thumbnail_url"),
-                    "face_count": len(faces),
-                    "photo_count": len(photo_set),
-                    "photos": list(photo_set.values())
-                })
-            return results
+            try:
+                results = []
+                for c in c_rows:
+                    cid = c["id"]
+                    faces_res = supabase.table("face_embeddings").select("id, photo_id, bounding_box").eq("cluster_id", cid).execute()
+                    faces = faces_res.data or []
+                    photo_ids = list({f["photo_id"] for f in faces if f.get("photo_id")})
+                    p_map = {}
+                    if photo_ids:
+                        try:
+                            p_res = supabase.table("photos").select("id, image_url, thumbnail_url, created_at").in_("id", photo_ids).execute()
+                            for p in (p_res.data or []):
+                                p_map[p["id"]] = p
+                        except Exception:
+                            pass
+                    
+                    photo_set = {}
+                    for f in faces:
+                        pid = f["photo_id"]
+                        p = p_map.get(pid, {})
+                        if pid not in photo_set:
+                            bbox = f.get("bounding_box")
+                            if isinstance(bbox, str):
+                                try:
+                                    bbox = json.loads(bbox)
+                                except Exception:
+                                    pass
+                            photo_set[pid] = {
+                                "photo_id": pid,
+                                "image_url": p.get("image_url"),
+                                "thumbnail_url": p.get("thumbnail_url"),
+                                "bounding_box": bbox,
+                                "created_at": p.get("created_at")
+                            }
+                    
+                    results.append({
+                        "cluster_id": cid,
+                        "event_id": actual_event_id,
+                        "name": c["name"],
+                        "thumbnail_url": c.get("thumbnail_url"),
+                        "face_count": len(faces),
+                        "photo_count": len(photo_set),
+                        "photos": list(photo_set.values())
+                    })
+                return results
+            except Exception:
+                return self.compute_event_clusters(actual_event_id)
         else:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
