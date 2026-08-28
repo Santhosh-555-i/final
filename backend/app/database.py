@@ -163,6 +163,7 @@ class DatabaseService:
                 pw = pw[:72]
             return bcrypt.checkpw(pw, hashed_password.encode("utf-8"))
         except Exception:
+            # Legacy SHA-256 fallback for old hashes
             old_hash = hashlib.sha256(plain_password.strip().encode("utf-8")).hexdigest()
             return old_hash == hashed_password
 

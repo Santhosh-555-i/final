@@ -14,7 +14,7 @@ from app.config import settings
 router = APIRouter(prefix="/admin", tags=["Admin Drive & Indexing"])
 
 class SyncDriveRequest(BaseModel):
-    drive_link: str = Field(..., example="https://drive.google.com/drive/folders/1abcxyz...")
+    drive_link: str = Field(..., json_schema_extra={"example": "https://drive.google.com/drive/folders/1abcxyz..."})
     event_id: Optional[str] = None
     event_code: Optional[str] = None
 

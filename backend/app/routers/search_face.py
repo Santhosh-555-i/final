@@ -13,8 +13,8 @@ from app.config import settings
 router = APIRouter(tags=["Facial Search & Matching"])
 
 class SearchFaceJsonRequest(BaseModel):
-    event_id: Optional[str] = Field(None, example="EVENT2026")
-    event_code: Optional[str] = Field(None, example="EVENT2026")
+    event_id: Optional[str] = Field(None, json_schema_extra={"example": "EVENT2026"})
+    event_code: Optional[str] = Field(None, json_schema_extra={"example": "EVENT2026"})
     selfie_base64: Optional[str] = Field(None, description="Base64 encoded selfie image data")
     image_base64: Optional[str] = Field(None, description="Alias for selfie_base64")
     threshold: Optional[float] = Field(0.6, description="Cosine similarity threshold (default: 0.6)")
