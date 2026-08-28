@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS events (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Ensure all columns exist on pre-existing tables
+ALTER TABLE events ADD COLUMN IF NOT EXISTS drive_link TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS is_protected BOOLEAN DEFAULT FALSE;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);
+
 CREATE INDEX IF NOT EXISTS idx_events_code ON events(event_code);
 
 -- 2. Photos Table

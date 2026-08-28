@@ -177,16 +177,17 @@ class DatabaseService:
         clean_drive_link = drive_link.strip() if drive_link and drive_link.strip() else None
 
         if settings.DB_MODE == "supabase":
+            payload = {
+                "id": event_id,
+                "title": title,
+                "event_code": event_code,
+                "password_hash": password_hash,
+                "is_protected": is_protected,
+                "drive_link": clean_drive_link,
+                "created_at": created_at
+            }
             try:
-                res = self.supabase.table("events").insert({
-                    "id": event_id,
-                    "title": title,
-                    "event_code": event_code,
-                    "password_hash": password_hash,
-                    "is_protected": is_protected,
-                    "drive_link": clean_drive_link,
-                    "created_at": created_at
-                }).execute()
+                res = self.supabase.table("events").insert(payload).execute()
                 if res.data:
                     item = res.data[0]
                     item["photo_count"] = 0
@@ -194,6 +195,20 @@ class DatabaseService:
                     return item
                 raise RuntimeError("Supabase returned empty data for event creation.")
             except Exception as e:
+                err_str = str(e)
+                # If Supabase table is missing drive_link column, retry without drive_link
+                if "drive_link" in err_str or "PGRST204" in err_str:
+                    payload.pop("drive_link", None)
+                    try:
+                        res = self.supabase.table("events").insert(payload).execute()
+                        if res.data:
+                            item = res.data[0]
+                            item["photo_count"] = 0
+                            item["drive_link"] = clean_drive_link
+                            item.pop("password_hash", None)
+                            return item
+                    except Exception as ex:
+                        raise RuntimeError(f"[Database Error] Supabase create_event failed: {ex}")
                 raise RuntimeError(f"[Database Error] Supabase create_event failed: {e}")
         else:
             conn = sqlite3.connect(self.db_path)
@@ -223,7 +238,8 @@ class DatabaseService:
                 self.supabase.table("events").update({"drive_link": drive_link}).eq("id", event_id).execute()
                 return True
             except Exception as e:
-                raise RuntimeError(f"[Database Error] Supabase update_event_drive_link failed: {e}")
+                print(f"[Database Warning] Supabase update_event_drive_link notice: {e}")
+                return False
         else:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
