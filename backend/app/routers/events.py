@@ -38,8 +38,9 @@ def create_event(event_in: EventCreate, background_tasks: BackgroundTasks, admin
 
     # If drive link is specified, trigger drive import in background with tracking
     if event_in.drive_link and event_in.drive_link.strip():
+        from app.routers.admin_sync import sync_executor, _run_drive_sync_worker
         task_id = task_tracker.create_task(created["id"])
-        background_tasks.add_task(drive_importer.import_from_drive_link, created["id"], event_in.drive_link.strip(), task_id)
+        sync_executor.submit(_run_drive_sync_worker, created["id"], event_in.drive_link.strip(), task_id)
 
     return created
 

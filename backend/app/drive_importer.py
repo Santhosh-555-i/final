@@ -220,6 +220,8 @@ class GoogleDriveImporter:
                     del image_bytes
                     import gc
                     gc.collect()
+                    import time
+                    time.sleep(0.04)
 
             # Automatically compute person clusters so "People" tab is immediately populated
             try:

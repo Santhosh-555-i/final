@@ -340,9 +340,9 @@ export default function AdminDashboardPage() {
               setDriveImportError(status.error || "Failed to import from Google Drive.");
             }
           } catch (err) {
-            console.warn("Poll status error:", err);
+            console.warn("Retrying sync poll status...", err);
           }
-        }, 1200);
+        }, 3500);
       }
     } catch (err: any) {
       setIsDriveImporting(false);

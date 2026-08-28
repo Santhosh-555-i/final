@@ -1,6 +1,8 @@
 import base64
 import io
 import uuid
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, BackgroundTasks, status, Query
 from pydantic import BaseModel, Field
@@ -10,6 +12,19 @@ from app.drive_importer import drive_importer, task_tracker
 from app.ml_engine import ml_engine
 from app.storage import storage_service
 from app.config import settings
+
+# Dedicated background worker thread pool to keep FastAPI main event loop free (<50ms response)
+sync_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="drive_sync_worker")
+
+def _run_drive_sync_worker(target_event_id: str, drive_link: str, task_id: str):
+    try:
+        drive_importer.import_from_drive_link(
+            target_event_id,
+            drive_link,
+            task_id
+        )
+    except Exception as e:
+        task_tracker.update_task(task_id, status="failed", error=str(e))
 
 router = APIRouter(prefix="/admin", tags=["Admin Drive & Indexing"])
 
@@ -55,13 +70,8 @@ def sync_google_drive(req: SyncDriveRequest, background_tasks: BackgroundTasks):
     # Create tracking task
     task_id = task_tracker.create_task(target_event_id)
 
-    # Launch concurrent background import & indexing pipeline
-    background_tasks.add_task(
-        drive_importer.import_from_drive_link,
-        target_event_id,
-        req.drive_link.strip(),
-        task_id
-    )
+    # Launch in non-blocking dedicated threadpool worker
+    sync_executor.submit(_run_drive_sync_worker, target_event_id, req.drive_link.strip(), task_id)
 
     db_service.log_audit_action(target_event_id, "ADMIN_SYNC_DRIVE_STARTED", {
         "task_id": task_id,
