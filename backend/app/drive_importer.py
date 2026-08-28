@@ -14,8 +14,8 @@ from app.database import db_service
 from app.storage import storage_service
 from app.ml_engine import ml_engine
 from app.config import settings
-from app.google_drive_api import google_drive_helper
-
+from app.google_drive_api import google_drive_helper, GoogleDriveHelper
+from app.clustering import FaceClusteringEngine
 from app.sync_tracker import task_tracker
 
 
@@ -26,7 +26,12 @@ class GoogleDriveImporter:
     extracts 512-d vector embeddings, and indexes them into the database with live progress tracking.
     """
 
-    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.heic'}
+    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.heic', '.jfif', '.avif'}
+
+    def __init__(self):
+        self.clustering_engine = FaceClusteringEngine(
+            db_service.db_path if settings.DB_MODE == "sqlite" else None
+        )
 
     @staticmethod
     def extract_drive_folder_id(url: str) -> Optional[str]:
@@ -48,16 +53,19 @@ class GoogleDriveImporter:
     ) -> Dict:
         """
         Main entrypoint: parses the drive URL(s), downloads all images concurrently,
-        processes ML embeddings, and saves into event gallery with live progress updates.
+        processes ML embeddings, computes person clusters, and saves into event gallery with live progress updates.
         """
         clean_url = drive_url.strip()
         if not clean_url:
             if task_id:
-                task_tracker.update_task(task_id, status="failed", error="No Drive URL provided.")
+                task_tracker.update_task(task_id, status="failed", error="No Drive URL provided.", progress_message="No Drive URL provided.")
             return {"success": False, "imported_count": 0, "total_faces": 0, "message": "No Drive URL provided."}
 
         # Update event record with drive link
-        db_service.update_event_drive_link(event_id, clean_url)
+        try:
+            db_service.update_event_drive_link(event_id, clean_url)
+        except Exception:
+            pass
 
         if task_id:
             task_tracker.update_task(
@@ -70,8 +78,8 @@ class GoogleDriveImporter:
         downloaded_image_paths: List[str] = []
 
         try:
-            # Check if user entered multiple URLs separated by newlines, commas, or spaces
-            raw_urls = [u.strip() for u in re.split(r'[\n,\s]+', clean_url) if u.strip().startswith("http")]
+            # Check if user entered multiple URLs separated by newlines, commas, semicolons, or spaces
+            raw_urls = [u.strip() for u in re.split(r'[\n,;\s]+', clean_url) if u.strip().startswith("http") or len(u.strip()) >= 20]
             if not raw_urls:
                 raw_urls = [clean_url]
 
@@ -80,14 +88,15 @@ class GoogleDriveImporter:
             direct_urls: Set[str] = set()
 
             for u in raw_urls:
-                f_id = self.extract_drive_folder_id(u)
+                f_id, f_type = google_drive_helper.extract_id(u)
                 if f_id:
-                    folder_ids.add(f_id)
-                    continue
-
-                fl_id = self.extract_drive_file_id(u)
-                if fl_id:
-                    file_ids.add(fl_id)
+                    if f_type == "folder":
+                        folder_ids.add(f_id)
+                    elif f_type == "file":
+                        file_ids.add(f_id)
+                    else: # "id" (could be folder or file)
+                        folder_ids.add(f_id)
+                        file_ids.add(f_id)
                     continue
 
                 if u.startswith("http://") or u.startswith("https://"):
@@ -130,11 +139,18 @@ class GoogleDriveImporter:
                         except Exception as e:
                             print(f"[Drive Importer] Direct URL download error: {e}")
 
+            # 4. Fallback: If 0 files found and we had candidate folder IDs, try downloading them as single files
+            if not downloaded_image_paths and folder_ids:
+                for fid in folder_ids:
+                    path = self._download_single_drive_file(fid, temp_dir)
+                    if path:
+                        downloaded_image_paths.append(path)
+
             # Deduplicate paths
             downloaded_image_paths = list(dict.fromkeys(downloaded_image_paths))
 
             if not downloaded_image_paths:
-                err_msg = "Could not download images from the provided Google Drive link. Please ensure folder sharing is set to 'Anyone with the link can view' (Public) or provide valid Google Drive credentials."
+                err_msg = "Could not download images from the provided Google Drive link. Please ensure folder sharing is set to 'Anyone with the link can view' (Public) or provide valid image URLs."
                 if task_id:
                     task_tracker.update_task(task_id, status="failed", error=err_msg, progress_message="Download failed.")
                 return {
@@ -169,10 +185,7 @@ class GoogleDriveImporter:
                         image_bytes = f.read()
 
                     # Verify image validity
-                    try:
-                        with Image.open(img_path) as test_img:
-                            test_img.verify()
-                    except Exception:
+                    if not GoogleDriveHelper.is_valid_image_bytes(image_bytes):
                         continue
 
                     # 1. Save raw image & thumbnail
@@ -204,6 +217,13 @@ class GoogleDriveImporter:
                 except Exception as e:
                     print(f"[Drive Import Warning] Failed to process photo {img_path}: {e}")
 
+            # Automatically compute person clusters so "People" tab is immediately populated
+            try:
+                self.clustering_engine.compute_event_clusters(event_id)
+                print(f"[Drive Import] Person clusters computed for event {event_id}.")
+            except Exception as e:
+                print(f"[Drive Import Warning] Auto-clustering notice: {e}")
+
             if task_id:
                 task_tracker.update_task(
                     task_id,
@@ -231,21 +251,8 @@ class GoogleDriveImporter:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _download_drive_folder(self, folder_id: str, folder_url: str, output_dir: str) -> List[str]:
-        """Downloads all images from a public Google Drive folder fast with concurrent streams"""
+        """Downloads all images from a public Google Drive folder fast with concurrent streams & gdown fallback"""
         results: List[str] = []
-
-        # Fast pre-check to avoid long gdown backoff delays on 404/restricted folders
-        try:
-            check_resp = requests.get(
-                f"https://drive.google.com/drive/folders/{folder_id}",
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=4
-            )
-            if check_resp.status_code == 404:
-                print(f"[Drive Importer] Google Drive folder {folder_id} returned 404 (Restricted or non-public).")
-                return []
-        except Exception:
-            pass
 
         # Attempt 1: Direct concurrent scraping & stream download (sub-second)
         try:
@@ -255,7 +262,7 @@ class GoogleDriveImporter:
                 with ThreadPoolExecutor(max_workers=10) as executor:
                     futures = {
                         executor.submit(self._download_single_drive_file, item["id"], output_dir): item["id"]
-                        for item in items[:100]
+                        for item in items[:250]
                     }
                     for future in as_completed(futures):
                         try:
@@ -275,18 +282,39 @@ class GoogleDriveImporter:
             folder_out_dir = os.path.join(output_dir, f"folder_{folder_id}")
             os.makedirs(folder_out_dir, exist_ok=True)
             
-            gdown.download_folder(
-                id=folder_id, 
-                output=folder_out_dir, 
-                quiet=True, 
-                use_cookies=False
-            )
+            # Try with URL
+            try:
+                gdown.download_folder(
+                    url=f"https://drive.google.com/drive/folders/{folder_id}", 
+                    output=folder_out_dir, 
+                    quiet=True, 
+                    use_cookies=True,
+                    remaining_ok=True
+                )
+            except Exception:
+                gdown.download_folder(
+                    id=folder_id, 
+                    output=folder_out_dir, 
+                    quiet=True, 
+                    use_cookies=True,
+                    remaining_ok=True
+                )
             
             for root, _, files in os.walk(folder_out_dir):
                 for file in files:
                     ext = os.path.splitext(file)[1].lower()
+                    full_p = os.path.join(root, file)
                     if ext in self.IMAGE_EXTENSIONS:
-                        results.append(os.path.join(root, file))
+                        results.append(full_p)
+                    else:
+                        # Check extensionless file
+                        try:
+                            if os.path.getsize(full_p) > 1000:
+                                with open(full_p, "rb") as test_f:
+                                    if GoogleDriveHelper.is_valid_image_bytes(test_f.read(1024)):
+                                        results.append(full_p)
+                        except Exception:
+                            pass
         except Exception as e:
             print(f"[Drive Importer Notice] gdown folder download attempt: {e}")
 
@@ -299,7 +327,7 @@ class GoogleDriveImporter:
             return dest_file
 
         data = google_drive_helper.download_file_bytes(file_id)
-        if data and len(data) > 1500:
+        if data and len(data) > 500:
             with open(dest_file, "wb") as f:
                 f.write(data)
             return dest_file
@@ -307,12 +335,19 @@ class GoogleDriveImporter:
         return None
 
     def _download_direct_url(self, url: str, output_dir: str) -> Optional[str]:
-        """Downloads direct image URL fast"""
+        """Downloads direct image URL fast (supports Dropbox, S3, Cloudinary, Imgur, etc.)"""
         try:
-            headers = {"User-Agent": "Mozilla/5.0"}
-            resp = requests.get(url, timeout=8, headers=headers)
-            if resp.status_code == 200 and len(resp.content) > 1000:
-                filename = f"web_img_{abs(hash(url)) % 100000}.jpg"
+            # Handle Dropbox dl=0 -> dl=1
+            fetch_url = url
+            if "dropbox.com" in fetch_url and "dl=0" in fetch_url:
+                fetch_url = fetch_url.replace("dl=0", "dl=1")
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            }
+            resp = requests.get(fetch_url, timeout=12, headers=headers, allow_redirects=True)
+            if resp.status_code == 200 and GoogleDriveHelper.is_valid_image_bytes(resp.content):
+                filename = f"web_img_{abs(hash(url)) % 1000000}.jpg"
                 dest_file = os.path.join(output_dir, filename)
                 with open(dest_file, "wb") as f:
                     f.write(resp.content)

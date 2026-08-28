@@ -5,7 +5,7 @@ from app.schemas import (
     VerifyPasswordResponse, DriveImportRequest, DriveImportResponse, PhotoOut
 )
 from app.database import db_service
-from app.drive_importer import drive_importer
+from app.drive_importer import drive_importer, task_tracker
 from app.routers.auth import get_current_admin
 
 router = APIRouter(prefix="/events", tags=["Events"])
@@ -36,9 +36,10 @@ def create_event(event_in: EventCreate, background_tasks: BackgroundTasks, admin
             detail=f"Failed to create event: {str(e)}"
         )
 
-    # If drive link is specified, trigger drive import in background
+    # If drive link is specified, trigger drive import in background with tracking
     if event_in.drive_link and event_in.drive_link.strip():
-        background_tasks.add_task(drive_importer.import_from_drive_link, created["id"], event_in.drive_link.strip())
+        task_id = task_tracker.create_task(created["id"])
+        background_tasks.add_task(drive_importer.import_from_drive_link, created["id"], event_in.drive_link.strip(), task_id)
 
     return created
 

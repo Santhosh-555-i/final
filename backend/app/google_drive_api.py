@@ -1,9 +1,11 @@
 import os
 import re
+import io
 import urllib.parse
 import requests
 from typing import List, Dict, Optional, Tuple, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from PIL import Image
 
 class GoogleDriveHelper:
     """
@@ -11,9 +13,18 @@ class GoogleDriveHelper:
     Supports:
     1. Google Drive API v3 (via Service Account / API Key when credentials are provided).
     2. High-speed Direct Google CDN stream & folder downloader for public Drive links.
+    3. Multi-tier fallback pipeline supporting single files, folders, shortcuts, and direct URLs.
     """
 
-    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.heic'}
+    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.tiff', '.heic', '.jfif', '.avif'}
+    IMAGE_MAGIC_HEADERS = [
+        b'\xff\xd8\xff',      # JPEG
+        b'\x89PNG\r\n\x1a\n', # PNG
+        b'RIFF',              # WEBP (starts with RIFF....WEBP)
+        b'GIF87a',            # GIF
+        b'GIF89a',            # GIF
+        b'BM',                # BMP
+    ]
 
     def __init__(self, service_account_json_path: Optional[str] = None, api_key: Optional[str] = None):
         self.service_account_path = service_account_json_path or os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
@@ -37,21 +48,47 @@ class GoogleDriveHelper:
                 print(f"[Google Drive API Notice] Could not init official client ({e}). Fallback active.")
 
     @staticmethod
+    def is_valid_image_bytes(data: Optional[bytes]) -> bool:
+        """Verifies if binary data is a valid image (not HTML error or corrupt payload)."""
+        if not data or len(data) < 500:
+            return False
+        # Fast reject HTML or XML error pages
+        first_64 = data[:64].lower()
+        if b'<!doctype' in first_64 or b'<html' in first_64 or b'<?xml' in first_64:
+            return False
+        # Fast magic number check
+        for magic in GoogleDriveHelper.IMAGE_MAGIC_HEADERS:
+            if data.startswith(magic):
+                return True
+        # PIL verification
+        try:
+            with Image.open(io.BytesIO(data)) as img:
+                img.verify()
+            return True
+        except Exception:
+            return False
+
+    @staticmethod
     def extract_id(url_or_id: str) -> Tuple[Optional[str], str]:
         """
         Parses a Drive link or ID and returns (id, type) where type is 'folder', 'file', or 'id'.
+        Handles all common Google Drive URL patterns with query params, shortcuts, etc.
         """
         text = url_or_id.strip().strip("'\"`")
         if not text:
             return None, "invalid"
 
-        # Check folder pattern (handles folders/1abc, olders/1abc, /folders/1abc, etc.)
-        match_folder = re.search(r'(?:folders|olders)/([a-zA-Z0-9_-]{15,})', text)
+        # Check folder pattern (handles folders/1abc, u/0/folders/1abc, mobile/folders/1abc, folderview?id=1abc)
+        match_folder = re.search(r'(?:folders|folderview\?id=)(?:[a-zA-Z0-9_-]*/)?([a-zA-Z0-9_-]{15,})', text)
         if match_folder:
             return match_folder.group(1), "folder"
 
-        # Check file pattern
-        match_file = re.search(r'/file/d/([a-zA-Z0-9_-]{15,})', text)
+        match_folder_alt = re.search(r'/folders/([a-zA-Z0-9_-]{15,})', text)
+        if match_folder_alt:
+            return match_folder_alt.group(1), "folder"
+
+        # Check file pattern (handles /file/d/1abc, /d/1abc, uc?id=1abc, open?id=1abc)
+        match_file = re.search(r'/(?:file/d|d)/([a-zA-Z0-9_-]{15,})', text)
         if match_file:
             return match_file.group(1), "file"
 
@@ -62,7 +99,7 @@ class GoogleDriveHelper:
         # Raw ID or partial URL containing 25+ char ID
         match_raw = re.search(r'([a-zA-Z0-9_-]{25,45})', text)
         if match_raw:
-            return match_raw.group(1), "folder"
+            return match_raw.group(1), "id"
 
         return None, "invalid"
 
@@ -94,23 +131,36 @@ class GoogleDriveHelper:
         """Scrapes file IDs from a public Google Drive folder HTML response"""
         target_url = f"https://drive.google.com/drive/folders/{folder_id}"
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Accept-Language": "en-US,en;q=0.9",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         }
         items: List[Dict[str, str]] = []
         try:
-            resp = requests.get(target_url, headers=headers, timeout=10)
+            session = requests.Session()
+            resp = session.get(target_url, headers=headers, timeout=12, allow_redirects=True)
             if resp.status_code == 200:
                 html_text = resp.text
                 candidate_ids = set()
+                # Pattern 1: /file/d/ URLs
                 candidate_ids.update(re.findall(r'drive\.google\.com/file/d/([a-zA-Z0-9_-]{25,})', html_text))
+                # Pattern 2: data-id attributes
                 candidate_ids.update(re.findall(r'data-id=[\"\']([a-zA-Z0-9_-]{25,})[\"\']', html_text))
+                # Pattern 3: Javascript arrays in drive initial state
                 candidate_ids.update(re.findall(r'\[[\"\']([a-zA-Z0-9_-]{25,45})[\"\'],[\"\']image/', html_text))
-                candidate_ids.update(re.findall(r'\[[\"\']([a-zA-Z0-9_-]{28,45})[\"\'],null', html_text))
+                candidate_ids.update(re.findall(r'\[[\"\']([a-zA-Z0-9_-]{25,45})[\"\'],null', html_text))
+                candidate_ids.update(re.findall(r'\"([a-zA-Z0-9_-]{28,45})\"', html_text))
                 candidate_ids.discard(folder_id)
 
                 for fid in candidate_ids:
-                    if len(fid) >= 25 and not fid.startswith("AF_") and not fid.startswith("IZ"):
+                    # Filter out system and framework tokens
+                    if (
+                        len(fid) >= 25 
+                        and not fid.startswith("AF_") 
+                        and not fid.startswith("IZ") 
+                        and not fid.startswith("CAES")
+                        and not fid.startswith("http")
+                    ):
                         items.append({
                             "id": fid,
                             "name": f"drive_{fid[:8]}.jpg",
@@ -123,53 +173,85 @@ class GoogleDriveHelper:
 
     def download_file_bytes(self, file_id: str) -> Optional[bytes]:
         """
-        Downloads high-resolution file bytes using high-speed CDN direct endpoints or API v3.
+        Downloads high-resolution file bytes using high-speed CDN direct endpoints,
+        confirmation tokens for large files, or gdown fallback.
         """
+        if not file_id:
+            return None
+
+        # Method 1: Google Drive API v3 (if configured)
         if self.drive_service:
             try:
                 from googleapiclient.http import MediaIoBaseDownload
-                import io
                 request = self.drive_service.files().get_media(fileId=file_id)
                 fh = io.BytesIO()
                 downloader = MediaIoBaseDownload(fh, request)
                 done = False
                 while not done:
                     _, done = downloader.next_chunk()
-                return fh.getvalue()
+                data = fh.getvalue()
+                if self.is_valid_image_bytes(data):
+                    return data
             except Exception:
                 pass
 
-        # High-Speed Direct Google CDN Endpoints
+        # Method 2: High-Speed Direct Google CDN Endpoints
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8"
         }
+        session = requests.Session()
+
         direct_endpoints = [
+            f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t",
             f"https://lh3.googleusercontent.com/d/{file_id}=w2560",
             f"https://drive.google.com/thumbnail?id={file_id}&sz=w2560",
-            f"https://drive.google.com/uc?export=download&id={file_id}"
+            f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t",
+            f"https://drive.google.com/uc?id={file_id}",
+            f"https://lh3.googleusercontent.com/u/0/d/{file_id}=w2048",
         ]
 
         for ep in direct_endpoints:
             try:
-                r = requests.get(ep, headers=headers, timeout=8)
-                if r.status_code == 200 and len(r.content) > 1500:
-                    if not r.content.startswith(b"<!DOCTYPE") and not r.content.startswith(b"<html"):
-                        return r.content
+                r = session.get(ep, headers=headers, timeout=10, allow_redirects=True)
+                if r.status_code == 200 and self.is_valid_image_bytes(r.content):
+                    return r.content
+
+                # Check if Google returned a virus scan confirmation page
+                if r.status_code == 200 and b'confirm=' in r.content:
+                    confirm_token_match = re.search(r'confirm=([0-9a-zA-Z_-]+)', r.text)
+                    if confirm_token_match:
+                        token = confirm_token_match.group(1)
+                        confirm_url = f"https://drive.google.com/uc?export=download&confirm={token}&id={file_id}"
+                        r2 = session.get(confirm_url, headers=headers, timeout=12, allow_redirects=True)
+                        if r2.status_code == 200 and self.is_valid_image_bytes(r2.content):
+                            return r2.content
             except Exception:
                 continue
 
-        # Fallback to gdown
+        # Method 3: Fallback to gdown with fuzzy download
         try:
             import gdown
             import tempfile
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                 tmp_path = tmp.name
-            out = gdown.download(f"https://drive.google.com/uc?id={file_id}", tmp_path, quiet=True)
-            if out and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 1500:
+
+            out = gdown.download(
+                id=file_id, 
+                output=tmp_path, 
+                quiet=True, 
+                fuzzy=True,
+                use_cookies=True
+            )
+            if out and os.path.exists(tmp_path) and os.path.getsize(tmp_path) > 500:
                 with open(tmp_path, "rb") as f:
                     data = f.read()
-                os.remove(tmp_path)
-                return data
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+                if self.is_valid_image_bytes(data):
+                    return data
         except Exception:
             pass
 

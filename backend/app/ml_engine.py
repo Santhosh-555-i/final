@@ -203,7 +203,7 @@ class FaceMLEngine:
     # CORE EMBEDDING EXTRACTION PIPELINE (STREAMING 1-BY-1 FOR LOW MEMORY)
     # =========================================================================
 
-    def extract_faces_and_embeddings(self, image_bytes: bytes) -> List[Dict]:
+    def extract_faces_and_embeddings(self, image_bytes: bytes, allow_fallback: bool = True) -> List[Dict]:
         """
         Processes an image, detects faces, and extracts 512-d embeddings sequentially.
         Guarantees low memory consumption by explicitly reclaiming RAM.
@@ -218,8 +218,13 @@ class FaceMLEngine:
         results = []
         detected_items = self._detect_faces_with_meta(proc_pil)
 
-        # Fallback if no face detected: use centered portrait region
+        # Fallback if no face detected in event photo and fallback is allowed
         if len(detected_items) == 0:
+            if not allow_fallback:
+                del orig_pil, proc_pil
+                gc.collect()
+                return []
+
             ch, cw = proc_h // 2, proc_w // 2
             w_half, h_half = min(proc_w, proc_h) // 3, min(proc_w, proc_h) // 3
             x1, y1 = max(0, cw - w_half), max(0, ch - h_half)
@@ -287,8 +292,8 @@ class FaceMLEngine:
         return results
 
     def extract_single_selfie_embedding(self, image_bytes: bytes) -> Optional[List[float]]:
-        """Extracts 512-d embedding for the attendee's selfie."""
-        faces = self.extract_faces_and_embeddings(image_bytes)
+        """Extracts 512-d embedding for the attendee's selfie (strictly requires a detected face)."""
+        faces = self.extract_faces_and_embeddings(image_bytes, allow_fallback=False)
         if not faces:
             return None
         # Pick the largest face in frame
