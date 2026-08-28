@@ -12,18 +12,24 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-from fastapi.middleware.gzip import GZipMiddleware
-
-# Configure CORS & High-Speed GZip Compression
-app.add_middleware(GZipMiddleware, minimum_size=800)
+# Enable CORS for Vercel frontend and all local origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_origin_regex=r"https://.*\.github\.io.*",
+    allow_origins=[
+        "https://photo-lake-six.vercel.app",
+        "http://localhost:3000",
+        "*"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+from fastapi.middleware.gzip import GZipMiddleware
+
+# Configure High-Speed GZip Compression
+app.add_middleware(GZipMiddleware, minimum_size=800)
 
 class CachingStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
