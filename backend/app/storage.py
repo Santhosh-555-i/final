@@ -10,6 +10,11 @@ class StorageService:
             try:
                 from supabase import create_client
                 self.supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
+                try:
+                    # Auto-provision 'photos' public bucket if not present
+                    self.supabase.storage.create_bucket("photos", options={"public": True})
+                except Exception:
+                    pass
                 print("[Storage] Connected to Supabase Storage service")
             except Exception as e:
                 raise RuntimeError(f"[Storage Error] Could not initialize Supabase Storage: {e}")
@@ -54,7 +59,23 @@ class StorageService:
                 thumb_url = self.supabase.storage.from_("photos").get_public_url(thumb_filename)
                 return raw_url, thumb_url
             except Exception as e:
-                raise RuntimeError(f"[Storage Error] Supabase upload failed: {e}")
+                try:
+                    self.supabase.storage.create_bucket("photos", options={"public": True})
+                    self.supabase.storage.from_("photos").upload(
+                        path=raw_filename,
+                        file=image_bytes,
+                        file_options={"content-type": "image/jpeg"}
+                    )
+                    self.supabase.storage.from_("photos").upload(
+                        path=thumb_filename,
+                        file=thumb_bytes,
+                        file_options={"content-type": "image/jpeg"}
+                    )
+                    raw_url = self.supabase.storage.from_("photos").get_public_url(raw_filename)
+                    thumb_url = self.supabase.storage.from_("photos").get_public_url(thumb_filename)
+                    return raw_url, thumb_url
+                except Exception as retry_err:
+                    raise RuntimeError(f"[Storage Error] Supabase upload failed: {retry_err}")
 
         # Local storage (only when DB_MODE=sqlite)
         raw_path = os.path.join(settings.LOCAL_STORAGE_DIR, "raw", raw_filename)
