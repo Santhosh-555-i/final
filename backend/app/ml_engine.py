@@ -37,6 +37,7 @@ class FaceMLEngine:
                 self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
                 # Set num_classes=None or eval() directly
                 self.resnet = InceptionResnetV1(pretrained='vggface2').eval().to(self.device)
+                torch.set_num_threads(1)
                 
                 # Freeze all parameters to save memory
                 for param in self.resnet.parameters():
@@ -88,14 +89,14 @@ class FaceMLEngine:
     # MEMORY-SAFE PREPROCESSING & SCALING
     # =========================================================================
 
-    def _downscale_if_large(self, img_pil: Image.Image, max_dim: int = 1280) -> Tuple[Image.Image, float]:
+    def _downscale_if_large(self, img_pil: Image.Image, max_dim: int = 960) -> Tuple[Image.Image, float]:
         """Pre-scales high-res photos to prevent buffer bloat while maintaining aspect ratio."""
         w, h = img_pil.size
         if max(w, h) <= max_dim:
             return img_pil, 1.0
         
         scale = max_dim / float(max(w, h))
-        new_w, new_h = int(w * scale), int(h * scale)
+        new_w, new_h = max(1, int(w * scale)), max(1, int(h * scale))
         return img_pil.resize((new_w, new_h), Image.Resampling.BILINEAR), scale
 
     def enhance_illumination(self, img_pil: Image.Image) -> Image.Image:

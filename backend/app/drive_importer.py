@@ -216,6 +216,10 @@ class GoogleDriveImporter:
                         )
                 except Exception as e:
                     print(f"[Drive Import Warning] Failed to process photo {img_path}: {e}")
+                finally:
+                    del image_bytes
+                    import gc
+                    gc.collect()
 
             # Automatically compute person clusters so "People" tab is immediately populated
             try:
@@ -259,10 +263,10 @@ class GoogleDriveImporter:
             items = google_drive_helper.list_folder_files(folder_id)
             if items:
                 print(f"[Drive Importer] Retrieved {len(items)} items from Drive Helper. Downloading concurrently...")
-                with ThreadPoolExecutor(max_workers=10) as executor:
+                with ThreadPoolExecutor(max_workers=4) as executor:
                     futures = {
                         executor.submit(self._download_single_drive_file, item["id"], output_dir): item["id"]
-                        for item in items[:250]
+                        for item in items[:150]
                     }
                     for future in as_completed(futures):
                         try:
