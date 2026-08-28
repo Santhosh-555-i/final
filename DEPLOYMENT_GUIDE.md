@@ -24,7 +24,7 @@ graph LR
 
 ### Option A: 1-Click Render Blueprint (Recommended)
 1. Go to [dashboard.render.com](https://dashboard.render.com/) and click **New +** -> **Blueprint**.
-2. Connect your GitHub repository: `https://github.com/Santhosh-555-i/photo.git`.
+2. Connect your GitHub repository: `https://github.com/Santhosh-555-i/my-website.git`.
 3. Render will automatically detect [`render.yaml`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/render.yaml).
 4. Click **Apply**. Render will automatically provision the FastAPI service, install CPU-optimized PyTorch, and launch the server.
 
@@ -32,7 +32,7 @@ graph LR
 
 ### Option B: Manual Web Service on Render
 1. Go to [dashboard.render.com](https://dashboard.render.com/) and click **New +** -> **Web Service**.
-2. Select your repository `Santhosh-555-i/photo`.
+2. Select your repository `Santhosh-555-i/my-website`.
 3. Fill in the service configuration:
    - **Name**: `eventlens-backend`
    - **Region**: Select closest to your users (e.g., *Oregon (US West)* or *Frankfurt (EU)*)
@@ -62,7 +62,7 @@ graph LR
 ## 🚂 Alternative Step 1: Deploy Backend to Railway
 
 1. Go to [railway.app](https://railway.app) and click **New Project** -> **Deploy from GitHub repo**.
-2. Select `Santhosh-555-i/photo`.
+2. Select `Santhosh-555-i/my-website`.
 3. In service settings, set **Root Directory** to `/backend` (or leave default to let Railway use [`backend/Dockerfile`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/backend/Dockerfile)).
 4. Under **Variables**, add:
    - `PORT` = `8000`
@@ -76,7 +76,7 @@ graph LR
 ## 🌐 Step 2: Deploy Frontend to Vercel
 
 1. Go to [vercel.com](https://vercel.com) and click **Add New...** -> **Project**.
-2. Import your GitHub repository (`Santhosh-555-i/photo`).
+2. Import your GitHub repository (`Santhosh-555-i/my-website`).
 3. In the project setup screen:
    - **Framework Preset**: `Next.js`
    - **Root Directory**: Click *Edit* and select **`frontend`**.
@@ -116,7 +116,7 @@ If you have a Linux server/VPS:
 
 1. Clone repository on your server:
    ```bash
-   git clone https://github.com/Santhosh-555-i/photo.git
+   git clone https://github.com/Santhosh-555-i/my-website.git
    cd photo
    ```
 2. Run the stack with Docker Compose:
