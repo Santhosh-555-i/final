@@ -16,36 +16,7 @@ from app.ml_engine import ml_engine
 from app.config import settings
 from app.google_drive_api import google_drive_helper
 
-class SyncTaskTracker:
-    """Stores in-memory status for real-time indexing and sync tracking"""
-    def __init__(self):
-        self.tasks: Dict[str, Dict] = {}
-
-    def create_task(self, event_id: str) -> str:
-        task_id = str(uuid.uuid4())
-        self.tasks[task_id] = {
-            "task_id": task_id,
-            "event_id": event_id,
-            "status": "pending",
-            "progress_message": "Initializing Google Drive connection...",
-            "current": 0,
-            "total": 0,
-            "faces_detected": 0,
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-            "error": None
-        }
-        return task_id
-
-    def update_task(self, task_id: str, **kwargs):
-        if task_id in self.tasks:
-            self.tasks[task_id].update(kwargs)
-            self.tasks[task_id]["updated_at"] = datetime.utcnow().isoformat()
-
-    def get_task(self, task_id: str) -> Optional[Dict]:
-        return self.tasks.get(task_id)
-
-task_tracker = SyncTaskTracker()
+from app.sync_tracker import task_tracker
 
 
 class GoogleDriveImporter:

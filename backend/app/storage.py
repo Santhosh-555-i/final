@@ -6,15 +6,16 @@ from app.config import settings
 
 class StorageService:
     def __init__(self):
-        self.use_supabase = bool(settings.SUPABASE_URL and settings.SUPABASE_KEY)
-        if self.use_supabase:
+        if settings.DB_MODE == "supabase":
             try:
                 from supabase import create_client
-                self.supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_KEY)
+                self.supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_ROLE_KEY)
                 print("[Storage] Connected to Supabase Storage service")
             except Exception as e:
-                print(f"[Storage Warning] Could not initialize Supabase Storage: {e}. Falling back to local storage.")
-                self.use_supabase = False
+                raise RuntimeError(f"[Storage Error] Could not initialize Supabase Storage: {e}")
+        else:
+            self.supabase = None
+            print("[Storage] Using local SQLite/filesystem storage")
 
     def save_photo_and_thumbnail(self, image_bytes: bytes, filename: str) -> tuple[str, str]:
         """
@@ -36,9 +37,9 @@ class StorageService:
         img.save(thumb_io, format="JPEG", quality=85)
         thumb_bytes = thumb_io.getvalue()
 
-        if self.use_supabase:
+        if settings.DB_MODE == "supabase":
             try:
-                # Upload to Supabase bucket 'photos'
+                # Upload to Supabase bucket 'photos' using service role
                 self.supabase.storage.from_("photos").upload(
                     path=raw_filename,
                     file=image_bytes,
@@ -53,9 +54,9 @@ class StorageService:
                 thumb_url = self.supabase.storage.from_("photos").get_public_url(thumb_filename)
                 return raw_url, thumb_url
             except Exception as e:
-                print(f"[Storage Warning] Supabase upload failed: {e}. Saving locally.")
+                raise RuntimeError(f"[Storage Error] Supabase upload failed: {e}")
 
-        # Local storage fallback
+        # Local storage (only when DB_MODE=sqlite)
         raw_path = os.path.join(settings.LOCAL_STORAGE_DIR, "raw", raw_filename)
         thumb_path = os.path.join(settings.LOCAL_STORAGE_DIR, "thumbnails", thumb_filename)
 
@@ -69,5 +70,29 @@ class StorageService:
         raw_url = f"/static/raw/{raw_filename}"
         thumb_url = f"/static/thumbnails/{thumb_filename}"
         return raw_url, thumb_url
+
+    def delete_photo_files(self, raw_url: str, thumb_url: str) -> None:
+        """Deletes photo files from Supabase or Local Storage based on mode"""
+        if settings.DB_MODE == "supabase":
+            try:
+                # Extract filename from URL (e.g. https://.../storage/v1/object/public/photos/photo_xyz.jpg)
+                raw_filename = raw_url.split("/")[-1] if raw_url else None
+                thumb_filename = thumb_url.split("/")[-1] if thumb_url else None
+                
+                paths_to_remove = [p for p in (raw_filename, thumb_filename) if p]
+                if paths_to_remove:
+                    self.supabase.storage.from_("photos").remove(paths_to_remove)
+            except Exception as e:
+                print(f"[Storage Error] Failed to delete from Supabase: {e}")
+        else:
+            for url in (raw_url, thumb_url):
+                if url and url.startswith("/static/"):
+                    rel = url.replace("/static/", "")
+                    full = os.path.join(settings.LOCAL_STORAGE_DIR, rel)
+                    if os.path.exists(full):
+                        try:
+                            os.remove(full)
+                        except Exception:
+                            pass
 
 storage_service = StorageService()

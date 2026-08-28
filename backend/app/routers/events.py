@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Depends
 from typing import List, Optional
 from app.schemas import (
     EventCreate, EventOut, VerifyPasswordRequest, 
@@ -6,11 +6,12 @@ from app.schemas import (
 )
 from app.database import db_service
 from app.drive_importer import drive_importer
+from app.routers.auth import get_current_admin
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
 @router.post("/create", response_model=EventOut, status_code=status.HTTP_201_CREATED)
-def create_event(event_in: EventCreate, background_tasks: BackgroundTasks):
+def create_event(event_in: EventCreate, background_tasks: BackgroundTasks, admin_email: str = Depends(get_current_admin)):
     """
     Creates a new event record with optional password protection and Google Drive link.
     """
@@ -57,7 +58,7 @@ def verify_password(req: VerifyPasswordRequest):
     return VerifyPasswordResponse(success=True, message="Event access unlocked successfully.")
 
 @router.post("/import-drive", response_model=DriveImportResponse)
-def import_google_drive(req: DriveImportRequest):
+def import_google_drive(req: DriveImportRequest, admin_email: str = Depends(get_current_admin)):
     """
     Imports all images from a Google Drive folder/files link, generates embeddings, and saves to event gallery.
     """
@@ -104,7 +105,7 @@ def get_event_photos(code: str, limit: int = 100, offset: int = 0):
     return photos
 
 @router.delete("/{event_id_or_code}")
-def delete_event(event_id_or_code: str):
+def delete_event(event_id_or_code: str, admin_email: str = Depends(get_current_admin)):
     """
     Permanently deletes an event, all its photos, face embeddings, clusters, and data.
     """

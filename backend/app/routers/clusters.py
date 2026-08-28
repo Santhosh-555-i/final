@@ -4,6 +4,7 @@ from typing import List, Optional
 from app.clustering import FaceClusteringEngine
 from app.database import db_service
 from app.config import settings
+from app.routers.auth import get_current_admin
 
 router = APIRouter(prefix="/clusters", tags=["Person Discovery & Clusters"])
 clustering_engine = FaceClusteringEngine(db_service.db_path)
@@ -32,7 +33,7 @@ def get_event_clusters(event_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/event/{event_id}/recluster")
-def recompute_event_clusters(event_id: str, threshold: float = 0.55):
+def recompute_event_clusters(event_id: str, threshold: float = 0.55, admin_email: str = Depends(get_current_admin)):
     """
     Forces a complete re-clustering of all face embeddings in the event.
     """
@@ -44,7 +45,7 @@ def recompute_event_clusters(event_id: str, threshold: float = 0.55):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{cluster_id}/name")
-def rename_cluster(cluster_id: str, req: RenameClusterRequest):
+def rename_cluster(cluster_id: str, req: RenameClusterRequest, admin_email: str = Depends(get_current_admin)):
     """
     Renames a discovered person cluster (e.g. 'Person 001' -> 'Alice Smith').
     """
@@ -55,7 +56,7 @@ def rename_cluster(cluster_id: str, req: RenameClusterRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/merge")
-def merge_clusters(req: MergeClusterRequest):
+def merge_clusters(req: MergeClusterRequest, admin_email: str = Depends(get_current_admin)):
     """
     Merges two person clusters into one.
     """
@@ -67,7 +68,7 @@ def merge_clusters(req: MergeClusterRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/split")
-def split_face(req: SplitFaceRequest):
+def split_face(req: SplitFaceRequest, admin_email: str = Depends(get_current_admin)):
     """
     Splits a single face out of a cluster into a new individual person profile.
     """
@@ -78,7 +79,7 @@ def split_face(req: SplitFaceRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{cluster_id}/biometrics")
-def delete_person_biometrics(cluster_id: str):
+def delete_person_biometrics(cluster_id: str, admin_email: str = Depends(get_current_admin)):
     """
     Deletes all biometric face embeddings for a specific person cluster (GDPR compliance).
     """

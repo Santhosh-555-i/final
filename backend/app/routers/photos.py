@@ -2,22 +2,26 @@ import io
 import zipfile
 import requests
 import os
+import tempfile
 from typing import List, Optional
 from pydantic import BaseModel
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Response
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status, Response, Depends
 from fastapi.responses import StreamingResponse
+from fastapi.concurrency import run_in_threadpool
 from app.schemas import PhotoOut, MatchResponse, PhotoMatchResult
 from app.database import db_service
 from app.storage import storage_service
 from app.ml_engine import ml_engine
 from app.config import settings
+from app.routers.auth import get_current_admin
 
 router = APIRouter(prefix="/photos", tags=["Photos"])
 
 @router.post("/upload-batch", response_model=List[PhotoOut], status_code=status.HTTP_201_CREATED)
 async def upload_photos_batch(
     event_id: str = Form(...),
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
+    admin_email: str = Depends(get_current_admin)
 ):
     """
     Accepts bulk event photos + event_id.
@@ -100,12 +104,16 @@ async def download_photos_zip(
     photo_urls: List[str]
 ):
     """
-    Downloads photos and streams a .zip archive.
+    Downloads photos and streams a .zip archive without holding it entirely in RAM.
     """
     if not photo_urls:
         raise HTTPException(status_code=400, detail="No photo URLs provided for download.")
+    
+    if len(photo_urls) > 500:
+        raise HTTPException(status_code=400, detail="Too many photos requested. Max 500.")
 
-    zip_buffer = io.BytesIO()
+    # Use SpooledTemporaryFile to spill to disk if > 10MB
+    zip_buffer = tempfile.SpooledTemporaryFile(max_size=10 * 1024 * 1024)
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for idx, url in enumerate(photo_urls, 1):
             try:
@@ -115,19 +123,29 @@ async def download_photos_zip(
                     full_path = os.path.join(settings.LOCAL_STORAGE_DIR, rel_path)
                     if os.path.exists(full_path):
                         with open(full_path, "rb") as f:
-                            img_data = f.read()
-                        zf.writestr(f"event_photo_{idx}.jpg", img_data)
+                            zf.writestr(f"event_photo_{idx}.jpg", f.read())
                 else:
                     # Remote HTTP URL
-                    resp = requests.get(url, timeout=10)
+                    resp = requests.get(url, timeout=10, stream=True)
                     if resp.status_code == 200:
                         zf.writestr(f"event_photo_{idx}.jpg", resp.content)
             except Exception as e:
                 print(f"[ZIP Download Error] Failed to include photo {url}: {e}")
 
     zip_buffer.seek(0)
+    
+    def file_iterator():
+        try:
+            while True:
+                chunk = zip_buffer.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            zip_buffer.close()
+            
     return StreamingResponse(
-        zip_buffer,
+        file_iterator(),
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=EventLens_My_Photos.zip"}
     )
@@ -136,7 +154,7 @@ class DeleteBatchRequest(BaseModel):
     photo_ids: List[str]
 
 @router.delete("/{photo_id}")
-def delete_photo(photo_id: str):
+def delete_photo(photo_id: str, admin_email: str = Depends(get_current_admin)):
     """
     Deletes a photo and its associated face embeddings.
     """
@@ -144,7 +162,7 @@ def delete_photo(photo_id: str):
     return {"success": success, "message": f"Photo {photo_id} deleted successfully."}
 
 @router.post("/delete-batch")
-def delete_photos_batch(req: DeleteBatchRequest):
+def delete_photos_batch(req: DeleteBatchRequest, admin_email: str = Depends(get_current_admin)):
     """
     Deletes a batch of photos and their associated face embeddings in bulk.
     """

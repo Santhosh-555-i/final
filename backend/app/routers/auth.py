@@ -1,47 +1,76 @@
-from fastapi import APIRouter, HTTPException, status
+import jwt
+from datetime import datetime, timedelta
+from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.security import OAuth2PasswordBearer
+from typing import Optional
 from app.schemas import AdminLoginRequest, AdminLoginResponse
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Admin Auth"])
 
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.ADMIN_JWT_SECRET, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def get_current_admin(token: str = Depends(oauth2_scheme)) -> str:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, settings.ADMIN_JWT_SECRET, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None or email.lower() != settings.ADMIN_EMAIL.lower():
+            raise credentials_exception
+    except jwt.PyJWTError:
+        raise credentials_exception
+    return email
+
 @router.post("/login", response_model=AdminLoginResponse)
 def admin_login(req: AdminLoginRequest):
-    """
-    Authenticates the designated Administrator email (santosh2005th@gmail.com).
-    """
     clean_email = req.email.strip().lower()
-    allowed_admins = [e.lower() for e in getattr(settings, 'ALLOWED_ADMIN_EMAILS', [settings.ADMIN_EMAIL])]
-    if settings.ADMIN_EMAIL.lower() not in allowed_admins:
-        allowed_admins.append(settings.ADMIN_EMAIL.lower())
 
-    if clean_email not in allowed_admins:
+    if clean_email != settings.ADMIN_EMAIL.lower():
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied. '{req.email}' is not authorized as an administrator. Designated admin: {settings.ADMIN_EMAIL}"
+            detail="Access denied. Unauthorized email."
         )
 
-    # Validate password if provided
-    if req.password and req.password != settings.ADMIN_PASSWORD and req.password != "admin123":
+    if req.password != settings.ADMIN_PASSWORD:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid administrator password. Default passcode: admin123"
+            detail="Invalid administrator password."
         )
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": clean_email}, expires_delta=access_token_expires
+    )
 
     return AdminLoginResponse(
         success=True,
         email=clean_email,
         role="Super Admin",
-        token=f"admin_token_{clean_email.split('@')[0]}",
+        token=access_token,
         message=f"Welcome back, Administrator ({clean_email})!"
     )
 
 @router.get("/profile")
-def get_admin_profile():
-    """
-    Returns current administrator identity details.
-    """
+def get_admin_profile(admin_email: str = Depends(get_current_admin)):
     return {
-        "admin_email": settings.ADMIN_EMAIL,
+        "admin_email": admin_email,
         "role": "Super Admin",
         "status": "Active"
     }

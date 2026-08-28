@@ -597,6 +597,20 @@ export default function GalleryPage() {
               </div>
             )}
           </div>
+        ) : activeTab === "selfie" && matches.length === 0 ? (
+          <div className="py-20 text-center glass-panel rounded-3xl p-8 border border-white/10 max-w-md mx-auto">
+            <Search className="w-16 h-16 text-[#ffb4ab] mx-auto mb-4 opacity-80" />
+            <h3 className="text-xl font-bold text-white mb-2">Face or Image Not Found</h3>
+            <p className="text-sm text-[#c7c4d7] mb-6">
+              We couldn't find a matching face in this event. Please ensure your selfie is well-lit and try again.
+            </p>
+            <button
+              onClick={() => router.push(`/event/${encodeURIComponent(eventCode)}`)}
+              className="bg-gradient-to-r from-[#8083ff] to-[#c0c1ff] text-[#1000a9] font-extrabold text-sm px-6 py-3 rounded-xl shadow-[0_0_20px_rgba(192,193,255,0.3)] hover:opacity-95 transition-all"
+            >
+              Take New Selfie
+            </button>
+          </div>
         ) : (
           <PhotoMasonry
             matches={currentDisplayList}

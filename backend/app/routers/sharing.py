@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from app.database import db_service
+from app.routers.auth import get_current_admin
 
 router = APIRouter(prefix="/sharing", tags=["Temporary Sharing & Privacy"])
 
@@ -43,7 +44,7 @@ def get_shared_photos(token: str):
     return data
 
 @router.delete("/{token}")
-def revoke_share_link(token: str):
+def revoke_share_link(token: str, admin_email: str = Depends(get_current_admin)):
     """
     Revokes a temporary sharing token immediately.
     """
@@ -52,7 +53,7 @@ def revoke_share_link(token: str):
     return {"success": success, "message": "Share link revoked successfully."}
 
 @router.delete("/event/{event_id}/biometrics")
-def delete_event_biometrics(event_id: str):
+def delete_event_biometrics(event_id: str, admin_email: str = Depends(get_current_admin)):
     """
     Deletes all biometric face vectors for an event (GDPR / Privacy Compliance).
     """
@@ -61,7 +62,7 @@ def delete_event_biometrics(event_id: str):
     return {"success": success, "message": "All biometric face vectors for this event have been permanently deleted."}
 
 @router.get("/audit-logs/{event_id}")
-def get_audit_logs(event_id: str, limit: int = 50):
+def get_audit_logs(event_id: str, limit: int = 50, admin_email: str = Depends(get_current_admin)):
     """
     Returns audit logs for an event.
     """
@@ -76,7 +77,7 @@ def get_event_settings(event_id: str):
     return db_service.get_event_settings(event_id)
 
 @router.post("/settings/{event_id}")
-def update_event_settings(event_id: str, req: UpdateSettingsRequest):
+def update_event_settings(event_id: str, req: UpdateSettingsRequest, admin_email: str = Depends(get_current_admin)):
     """
     Updates event privacy, search, and retention settings.
     """

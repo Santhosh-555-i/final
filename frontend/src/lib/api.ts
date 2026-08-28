@@ -1,3 +1,12 @@
+export async function adminFetch(url: string, options: RequestInit = {}) {
+  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+  const headers = new Headers(options.headers || {});
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  return fetch(url, { ...options, headers });
+}
+
 export function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL;
@@ -183,7 +192,7 @@ export async function importGoogleDrive(
   eventId: string,
   driveLink: string
 ): Promise<{ success: boolean; imported_count: number; total_faces: number; message: string }> {
-  const res = await fetch(`${getApiBaseUrl()}/events/import-drive`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/events/import-drive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -226,7 +235,7 @@ export async function listEvents(): Promise<EventData[]> {
 }
 
 export async function deleteEvent(eventIdOrCode: string): Promise<void> {
-  const res = await fetch(`${getApiBaseUrl()}/events/${encodeURIComponent(eventIdOrCode)}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/events/${encodeURIComponent(eventIdOrCode)}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -274,7 +283,7 @@ export async function uploadBatchPhotos(
 }
 
 export async function deletePhotosBatch(photoIds: string[]): Promise<number> {
-  const res = await fetch(`${getApiBaseUrl()}/photos/delete-batch`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/photos/delete-batch`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ photo_ids: photoIds }),
@@ -292,7 +301,7 @@ export async function syncDriveAdmin(
   eventId?: string,
   eventCode?: string
 ): Promise<{ success: boolean; task_id: string; event_id: string; status: string; message: string }> {
-  const res = await fetch(`${getApiBaseUrl()}/admin/sync-drive`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/admin/sync-drive`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -322,7 +331,7 @@ export interface SyncTaskStatus {
 }
 
 export async function getSyncStatus(taskId: string): Promise<SyncTaskStatus> {
-  const res = await fetch(`${getApiBaseUrl()}/admin/sync-status/${encodeURIComponent(taskId)}`);
+  const res = await adminFetch(`${getApiBaseUrl()}/admin/sync-status/${encodeURIComponent(taskId)}`);
   if (!res.ok) {
     const err = await res.json();
     throw new Error(err.detail || "Could not fetch sync status");
@@ -342,7 +351,7 @@ export interface AdminStatsData {
 }
 
 export async function getAdminStats(eventId: string): Promise<AdminStatsData> {
-  const res = await fetch(`${getApiBaseUrl()}/admin/stats/${encodeURIComponent(eventId)}`);
+  const res = await adminFetch(`${getApiBaseUrl()}/admin/stats/${encodeURIComponent(eventId)}`);
   if (!res.ok) {
     throw new Error("Could not fetch event stats");
   }
@@ -353,7 +362,7 @@ export async function indexFacesAdmin(
   eventId: string,
   forceReindex = false
 ): Promise<{ success: boolean; photos_processed: number; faces_detected: number; message: string }> {
-  const res = await fetch(`${getApiBaseUrl()}/admin/index-faces`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/admin/index-faces`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ event_id: eventId, force_reindex: forceReindex }),
@@ -368,11 +377,11 @@ export async function indexFacesAdmin(
 export async function searchFaceApi(
   eventIdOrCode: string,
   selfie: File | Blob | string,
-  threshold = 0.68
+  threshold = 0.58
 ): Promise<MatchResponseData> {
   if (typeof selfie === "string") {
     // Base64 JSON
-    const res = await fetch(`${getApiBaseUrl()}/search-face`, {
+    const res = await adminFetch(`${getApiBaseUrl()}/search-face`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -431,7 +440,7 @@ export async function adminLogin(
 }
 
 export async function getAdminProfile(): Promise<{ admin_email: string; role: string; status: string }> {
-  const res = await fetch(`${getApiBaseUrl()}/auth/profile`);
+  const res = await adminFetch(`${getApiBaseUrl()}/auth/profile`);
   if (!res.ok) {
     throw new Error("Could not fetch admin profile");
   }
@@ -439,7 +448,7 @@ export async function getAdminProfile(): Promise<{ admin_email: string; role: st
 }
 
 export async function deletePhoto(photoId: string): Promise<boolean> {
-  const res = await fetch(`${getApiBaseUrl()}/photos/${photoId}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/photos/${photoId}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -498,7 +507,7 @@ export async function getEventClusters(eventId: string): Promise<PersonCluster[]
 }
 
 export async function recomputeClusters(eventId: string, threshold = 0.38): Promise<PersonCluster[]> {
-  const res = await fetch(`${getApiBaseUrl()}/clusters/event/${eventId}/recluster?threshold=${threshold}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/event/${eventId}/recluster?threshold=${threshold}`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -509,7 +518,7 @@ export async function recomputeClusters(eventId: string, threshold = 0.38): Prom
 }
 
 export async function renamePersonCluster(clusterId: string, name: string): Promise<void> {
-  const res = await fetch(`${getApiBaseUrl()}/clusters/${clusterId}/name`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/${clusterId}/name`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
@@ -520,7 +529,7 @@ export async function renamePersonCluster(clusterId: string, name: string): Prom
 }
 
 export async function mergePersonClusters(targetClusterId: string, sourceClusterId: string): Promise<void> {
-  const res = await fetch(`${getApiBaseUrl()}/clusters/merge`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/merge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ target_cluster_id: targetClusterId, source_cluster_id: sourceClusterId }),
@@ -531,7 +540,7 @@ export async function mergePersonClusters(targetClusterId: string, sourceCluster
 }
 
 export async function deletePersonBiometrics(clusterId: string): Promise<void> {
-  const res = await fetch(`${getApiBaseUrl()}/clusters/${clusterId}/biometrics`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/${clusterId}/biometrics`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -577,7 +586,7 @@ export async function getSharedGalleryPhotos(token: string): Promise<SharedGalle
 }
 
 export async function revokeTemporaryShareLink(token: string): Promise<void> {
-  const res = await fetch(`${getApiBaseUrl()}/sharing/${token}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/${token}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -603,7 +612,7 @@ export interface EventSettingsData {
 }
 
 export async function getEventAuditLogs(eventId: string): Promise<AuditLogEntry[]> {
-  const res = await fetch(`${getApiBaseUrl()}/sharing/audit-logs/${eventId}`);
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/audit-logs/${eventId}`);
   if (!res.ok) {
     return [];
   }
@@ -612,7 +621,7 @@ export async function getEventAuditLogs(eventId: string): Promise<AuditLogEntry[
 }
 
 export async function deleteEventBiometrics(eventId: string): Promise<void> {
-  const res = await fetch(`${getApiBaseUrl()}/sharing/event/${eventId}/biometrics`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/event/${eventId}/biometrics`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -621,7 +630,7 @@ export async function deleteEventBiometrics(eventId: string): Promise<void> {
 }
 
 export async function getEventSettings(eventId: string): Promise<EventSettingsData> {
-  const res = await fetch(`${getApiBaseUrl()}/sharing/settings/${eventId}`);
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/settings/${eventId}`);
   if (!res.ok) {
     return {
       event_id: eventId,
@@ -643,7 +652,7 @@ export async function updateEventSettings(
     downloads_enabled: boolean;
   }
 ): Promise<EventSettingsData> {
-  const res = await fetch(`${getApiBaseUrl()}/sharing/settings/${eventId}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/settings/${eventId}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
