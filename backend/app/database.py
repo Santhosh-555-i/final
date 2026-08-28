@@ -5,12 +5,12 @@ import sqlite3
 import hashlib
 import urllib.parse
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from passlib.context import CryptContext
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = None  # passlib replaced by direct bcrypt calls below
 
 class DatabaseService:
     def __init__(self):
@@ -129,7 +129,6 @@ class DatabaseService:
         """)
         conn.commit()
 
-        # Migrate existing SQLite columns if upgrading an older database
         cursor.execute("PRAGMA table_info(events)")
         existing_cols = [row[1] for row in cursor.fetchall()]
         if "password_hash" not in existing_cols:
@@ -148,11 +147,21 @@ class DatabaseService:
         conn.close()
 
     def _hash_password(self, password: str) -> str:
-        return pwd_context.hash(password.strip())
+        """Hash password using bcrypt directly (compatible with bcrypt 4.x+)."""
+        import bcrypt
+        pw = password.strip().encode("utf-8")
+        if len(pw) > 72:
+            pw = pw[:72]
+        return bcrypt.hashpw(pw, bcrypt.gensalt()).decode("utf-8")
         
     def _verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verify password using bcrypt directly, with SHA-256 fallback for legacy hashes."""
+        import bcrypt
         try:
-            return pwd_context.verify(plain_password.strip(), hashed_password)
+            pw = plain_password.strip().encode("utf-8")
+            if len(pw) > 72:
+                pw = pw[:72]
+            return bcrypt.checkpw(pw, hashed_password.encode("utf-8"))
         except Exception:
             old_hash = hashlib.sha256(plain_password.strip().encode("utf-8")).hexdigest()
             return old_hash == hashed_password
@@ -171,7 +180,7 @@ class DatabaseService:
         else:
             event_code = event_code.strip().upper()
 
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         is_protected = bool(password and password.strip())
         password_hash = self._hash_password(password) if is_protected else None
         clean_drive_link = drive_link.strip() if drive_link and drive_link.strip() else None
@@ -196,7 +205,6 @@ class DatabaseService:
                 raise RuntimeError("Supabase returned empty data for event creation.")
             except Exception as e:
                 err_str = str(e)
-                # If Supabase table is missing drive_link column, retry without drive_link
                 if "drive_link" in err_str or "PGRST204" in err_str:
                     payload.pop("drive_link", None)
                     try:
@@ -267,7 +275,6 @@ class DatabaseService:
                 if res.data:
                     return res.data[0]["id"]
                 
-                # Try partial match on title
                 res2 = self.supabase.table("events").select("id").ilike("title", f"%{unquoted}%").order("created_at", desc=True).limit(1).execute()
                 if res2.data:
                     return res2.data[0]["id"]
@@ -371,7 +378,7 @@ class DatabaseService:
                 SELECT * FROM events 
                 WHERE UPPER(event_code) = UPPER(?) 
                    OR UPPER(event_code) = UPPER(?) 
-                   OR UPPER(title) = UPPER(?)
+                   OR UPPER(title) = UPPER(?) 
                    OR UPPER(title) = UPPER(?)
                    OR id = ? 
                    OR id = ?
@@ -469,7 +476,7 @@ class DatabaseService:
         self, event_id: str, image_url: str, thumbnail_url: str, faces: List[Dict]
     ) -> Dict:
         photo_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
 
         if settings.DB_MODE == "supabase":
             try:
@@ -715,12 +722,33 @@ class DatabaseService:
             conn.close()
             return True
 
+    # --- PERSON CLUSTERS (Safe Fallback Methods) ---
+    def get_clusters_for_event(self, event_id: str) -> List[Dict]:
+        actual_id = self.resolve_event_id(event_id) or event_id
+        if settings.DB_MODE == "supabase":
+            try:
+                res = self.supabase.table("person_clusters").select("*").eq("event_id", actual_id).execute()
+                return res.data or []
+            except Exception:
+                return []
+        else:
+            try:
+                conn = sqlite3.connect(self.db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM person_clusters WHERE event_id = ?", (actual_id,))
+                rows = cursor.fetchall()
+                conn.close()
+                return [dict(r) for r in rows]
+            except Exception:
+                return []
+
     # --- SECURE TEMPORARY SHARING TOKENS ---
     def create_share_token(self, event_id: str, photo_ids: List[str], expiry_hours: int = 48) -> str:
         import secrets
         from datetime import timedelta
         token = secrets.token_urlsafe(32)
-        created_at = datetime.utcnow()
+        created_at = datetime.now(timezone.utc)
         expires_at = created_at + timedelta(hours=expiry_hours)
 
         if settings.DB_MODE == "supabase":
@@ -750,23 +778,23 @@ class DatabaseService:
     def get_share_token_photos(self, token: str) -> Optional[Dict]:
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("share_tokens").select("*").eq("token", token).single().execute()
+                res = self.supabase.table("share_tokens").select("*").eq("token", token).maybe_single().execute()
                 if not res.data or res.data.get("is_revoked"):
                     return None
                 
                 row = res.data
                 expires_at = datetime.fromisoformat(row["expires_at"])
-                if datetime.utcnow() > expires_at:
+                if datetime.now(timezone.utc) > expires_at:
                     return None
 
-                ev_res = self.supabase.table("events").select("id, title, event_code").eq("id", row["event_id"]).single().execute()
+                ev_res = self.supabase.table("events").select("id, title, event_code").eq("id", row["event_id"]).maybe_single().execute()
                 ev_row = ev_res.data
 
                 photo_ids = json.loads(row["photo_ids_json"]) if isinstance(row["photo_ids_json"], str) else row["photo_ids_json"]
                 
                 photos = []
                 for pid in photo_ids:
-                    p_res = self.supabase.table("photos").select("id, image_url, thumbnail_url, created_at").eq("id", pid).single().execute()
+                    p_res = self.supabase.table("photos").select("id, image_url, thumbnail_url, created_at").eq("id", pid).maybe_single().execute()
                     if p_res.data:
                         photos.append(p_res.data)
 
@@ -791,7 +819,7 @@ class DatabaseService:
                 return None
 
             expires_at = datetime.fromisoformat(row["expires_at"])
-            if datetime.utcnow() > expires_at:
+            if datetime.now(timezone.utc) > expires_at:
                 conn.close()
                 return None
 
@@ -853,7 +881,7 @@ class DatabaseService:
     # --- AUDIT LOGS ---
     def log_audit_action(self, event_id: Optional[str], action: str, details: Optional[Dict] = None):
         log_id = str(uuid.uuid4())
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         details_str = json.dumps(details or {})
         
         if settings.DB_MODE == "supabase":
@@ -920,38 +948,36 @@ class DatabaseService:
                 logs.append(d)
             return logs
 
-    # --- EVENT SETTINGS ---
+    # --- EVENT SETTINGS (PGRST116 Safe Fallback) ---
     def get_event_settings(self, event_id: str) -> Dict:
+        default_settings = {
+            "event_id": event_id,
+            "similarity_threshold": 0.35,
+            "retention_days": 90,
+            "selfie_search_enabled": 1,
+            "downloads_enabled": 1
+        }
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("event_settings").select("*").eq("event_id", event_id).single().execute()
+                res = self.supabase.table("event_settings").select("*").eq("event_id", event_id).maybe_single().execute()
                 if res.data:
                     return res.data
-                return {
-                    "event_id": event_id,
-                    "similarity_threshold": 0.35,
-                    "retention_days": 90,
-                    "selfie_search_enabled": 1,
-                    "downloads_enabled": 1
-                }
-            except Exception as e:
-                raise RuntimeError(f"[Database Error] Supabase get_event_settings failed: {e}")
+                return default_settings
+            except Exception:
+                return default_settings
         else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM event_settings WHERE event_id = ?", (event_id,))
-            row = cursor.fetchone()
-            conn.close()
-            if row:
-                return dict(row)
-            return {
-                "event_id": event_id,
-                "similarity_threshold": 0.35,
-                "retention_days": 90,
-                "selfie_search_enabled": 1,
-                "downloads_enabled": 1
-            }
+            try:
+                conn = sqlite3.connect(self.db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM event_settings WHERE event_id = ?", (event_id,))
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    return dict(row)
+                return default_settings
+            except Exception:
+                return default_settings
 
     def update_event_settings(self, event_id: str, similarity_threshold: float, retention_days: int, selfie_search_enabled: bool, downloads_enabled: bool) -> Dict:
         if settings.DB_MODE == "supabase":
