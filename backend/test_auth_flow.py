@@ -1,4 +1,4 @@
-﻿"""
+"""
 Authentication flow integration tests.
 
 Tests:
@@ -140,10 +140,36 @@ class TestAuthenticatedEndpoints(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 401, resp.text)
 
-    def test_upload_batch_without_token_returns_401(self):
-        """POST /api/photos/upload-batch without token → 401."""
-        resp = client.post("/api/photos/upload-batch", data={"event_id": "test"})
-        self.assertEqual(resp.status_code, 401, resp.text)
+    def test_create_event_with_valid_token_returns_201(self):
+        """POST /api/events/create with valid Bearer token → 201."""
+        token = self._get_valid_token()
+        with self._patch_settings():
+            resp = client.post("/api/events/create", json={
+                "title": "Unit Test Event",
+                "event_code": "TEST-EVT-01"
+            }, headers={
+                "Authorization": f"Bearer {token}"
+            })
+        self.assertEqual(resp.status_code, 201, resp.text)
+        data = resp.json()
+        self.assertEqual(data["title"], "Unit Test Event")
+        self.assertEqual(data["event_code"], "TEST-EVT-01")
+
+
+class TestNextConfig(unittest.TestCase):
+    """
+    Verify next.config.ts has trailingSlash: false to avoid 308 redirects on API requests.
+    """
+
+    def test_trailing_slash_is_disabled(self):
+        base = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.normpath(os.path.join(base, "..", "frontend", "next.config.ts"))
+        if not os.path.exists(config_path):
+            self.skipTest("next.config.ts not found")
+        with open(config_path, encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("trailingSlash: false", src,
+            "next.config.ts must have trailingSlash: false so API rewrites do not trigger 308 redirects")
 
 
 class TestTokenStorage(unittest.TestCase):

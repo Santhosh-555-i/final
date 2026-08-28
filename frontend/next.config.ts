@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
   output: isExport ? "export" : (process.env.NEXT_OUTPUT_STANDALONE === "true" ? "standalone" : undefined),
   basePath: basePath || undefined,
-  trailingSlash: true,
+  trailingSlash: false,
   images: {
     unoptimized: true,
   },

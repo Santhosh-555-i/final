@@ -23,12 +23,18 @@ def create_event(event_in: EventCreate, background_tasks: BackgroundTasks, admin
                 detail=f"Event code '{event_in.event_code}' already exists. Please choose a different code."
             )
             
-    created = db_service.create_event(
-        title=event_in.title,
-        event_code=event_in.event_code,
-        password=event_in.password,
-        drive_link=event_in.drive_link
-    )
+    try:
+        created = db_service.create_event(
+            title=event_in.title,
+            event_code=event_in.event_code,
+            password=event_in.password,
+            drive_link=event_in.drive_link
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create event: {str(e)}"
+        )
 
     # If drive link is specified, trigger drive import in background
     if event_in.drive_link and event_in.drive_link.strip():
