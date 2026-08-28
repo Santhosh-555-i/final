@@ -114,9 +114,18 @@ export default function AdminDashboardPage() {
       localStorage.removeItem("eventlens_photos_db");
     } catch {}
     const storedEmail = sessionStorage.getItem("eventlens_admin_email");
-    if (storedEmail && storedEmail.toLowerCase() === DESIGNATED_ADMIN_EMAIL.toLowerCase()) {
+    const storedToken = sessionStorage.getItem("eventlens_admin_token");
+    if (
+      storedEmail &&
+      storedToken &&
+      storedEmail.toLowerCase() === DESIGNATED_ADMIN_EMAIL.toLowerCase()
+    ) {
       setIsAdminLoggedIn(true);
       setAdminEmailDisplay(storedEmail);
+    } else {
+      // Clean up any stale partial session
+      sessionStorage.removeItem("eventlens_admin_email");
+      sessionStorage.removeItem("eventlens_admin_token");
     }
   }, []);
 

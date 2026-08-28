@@ -1,5 +1,8 @@
 export async function adminFetch(url: string, options: RequestInit = {}) {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null;
+  // Token is stored in sessionStorage under 'eventlens_admin_token' by admin/page.tsx
+  const token = typeof window !== 'undefined'
+    ? sessionStorage.getItem('eventlens_admin_token')
+    : null;
   const headers = new Headers(options.headers || {});
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -446,12 +449,12 @@ export const matchAttendeeSelfie = searchFaceApi;
 
 export async function adminLogin(
   email: string,
-  password?: string
+  password: string
 ): Promise<{ success: boolean; email: string; role: string; token: string; message: string }> {
   const res = await fetch(`${getApiBaseUrl()}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email: email.trim(), password: password?.trim() || "admin123" }),
+    body: JSON.stringify({ email: email.trim(), password: password.trim() }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
