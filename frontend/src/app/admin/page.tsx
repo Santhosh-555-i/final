@@ -248,7 +248,10 @@ export default function AdminDashboardPage() {
         newPassword.trim() || undefined,
         newDriveLink.trim() || undefined
       );
-      setEvents((prev) => [created, ...prev]);
+      setEvents((prev) => {
+        const filtered = prev.filter((ev) => ev.id !== created.id && ev.event_code !== created.event_code);
+        return [created, ...filtered];
+      });
       setSelectedEvent(created);
       setDriveUrlInput(created.drive_link || "");
       setNewTitle("");

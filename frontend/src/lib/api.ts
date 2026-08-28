@@ -194,6 +194,22 @@ export function getFullImageUrl(url: string): string {
   return backend ? `${backend}/${url}` : `/${url}`;
 }
 
+export function parseApiErrorMessage(err: any, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err.detail === "string" && err.detail.trim()) {
+    return err.detail.trim();
+  }
+  if (Array.isArray(err.detail) && err.detail.length > 0) {
+    return err.detail
+      .map((d: any) => (typeof d === "object" ? d.msg || JSON.stringify(d) : String(d)))
+      .join(", ");
+  }
+  if (typeof err.message === "string" && err.message.trim()) {
+    return err.message.trim();
+  }
+  return fallback;
+}
+
 export async function createEvent(
   title: string,
   event_code?: string,
@@ -212,7 +228,7 @@ export async function createEvent(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail || "Failed to create event");
+    throw new Error(parseApiErrorMessage(err, "Failed to create event"));
   }
   return await res.json();
 }

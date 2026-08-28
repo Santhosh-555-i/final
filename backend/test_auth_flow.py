@@ -142,18 +142,20 @@ class TestAuthenticatedEndpoints(unittest.TestCase):
 
     def test_create_event_with_valid_token_returns_201(self):
         """POST /api/events/create with valid Bearer token → 201."""
+        import uuid
+        unique_code = f"TEST-{uuid.uuid4().hex[:6].upper()}"
         token = self._get_valid_token()
         with self._patch_settings():
             resp = client.post("/api/events/create", json={
                 "title": "Unit Test Event",
-                "event_code": "TEST-EVT-01"
+                "event_code": unique_code
             }, headers={
                 "Authorization": f"Bearer {token}"
             })
         self.assertEqual(resp.status_code, 201, resp.text)
         data = resp.json()
         self.assertEqual(data["title"], "Unit Test Event")
-        self.assertEqual(data["event_code"], "TEST-EVT-01")
+        self.assertEqual(data["event_code"], unique_code)
 
 
 class TestNextConfig(unittest.TestCase):
