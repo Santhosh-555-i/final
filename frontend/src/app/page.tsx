@@ -36,10 +36,10 @@ export default function LandingPage() {
     setFetchError("");
     try {
       const data = await listEvents();
-      setEvents(data);
+      setEvents(data && data.length > 0 ? data : []);
     } catch (err: any) {
-      console.warn("Could not fetch events list from backend:", err);
-      setFetchError("Unable to reach backend server. Please make sure the backend is running.");
+      console.warn("Could not fetch events list:", err);
+      setEvents([]);
     } finally {
       setLoadingEvents(false);
     }

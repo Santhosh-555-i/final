@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # -------------------------------------------------------------
+  # EventLens Backend (FastAPI + PyTorch + FaceNet Engine)
+  # -------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eventlens-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - SIMILARITY_THRESHOLD=0.68
+      - ADMIN_EMAIL=santosh2005th@gmail.com
+      - ADMIN_PASSWORD=admin123
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      # Optional: Uncomment if connecting to Supabase
+      # - SUPABASE_URL=https://your-project.supabase.co
+      # - SUPABASE_KEY=your-supabase-key
+      # - DATABASE_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
+    volumes:
+      # Persistent local storage for photos and SQLite database
+      - backend-storage:/app/storage_data
+      - backend-db:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # -------------------------------------------------------------
+  # EventLens Frontend (Next.js 16 Web Application)
+  # -------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: eventlens-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - NODE_ENV=production
+      - BACKEND_INTERNAL_URL=http://backend:8000
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=/api
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  backend-storage:
+  backend-db:

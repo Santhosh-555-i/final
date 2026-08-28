@@ -41,12 +41,12 @@ class GoogleDriveHelper:
         """
         Parses a Drive link or ID and returns (id, type) where type is 'folder', 'file', or 'id'.
         """
-        text = url_or_id.strip()
+        text = url_or_id.strip().strip("'\"`")
         if not text:
             return None, "invalid"
 
-        # Check folder pattern
-        match_folder = re.search(r'folders/([a-zA-Z0-9_-]{15,})', text)
+        # Check folder pattern (handles folders/1abc, olders/1abc, /folders/1abc, etc.)
+        match_folder = re.search(r'(?:folders|olders)/([a-zA-Z0-9_-]{15,})', text)
         if match_folder:
             return match_folder.group(1), "folder"
 
@@ -59,9 +59,10 @@ class GoogleDriveHelper:
         if match_open:
             return match_open.group(1), "file"
 
-        # Raw ID passed directly
-        if re.match(r'^[a-zA-Z0-9_-]{15,}$', text):
-            return text, "id"
+        # Raw ID or partial URL containing 25+ char ID
+        match_raw = re.search(r'([a-zA-Z0-9_-]{25,45})', text)
+        if match_raw:
+            return match_raw.group(1), "folder"
 
         return None, "invalid"
 

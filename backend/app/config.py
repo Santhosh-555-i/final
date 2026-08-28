@@ -13,8 +13,17 @@ class Settings:
     DB_MODE: str = os.getenv("DB_MODE", "sqlite")
     
     # CORS
-    _cors = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000,http://127.0.0.1:3001")
-    CORS_ORIGINS: List[str] = [x.strip() for x in _cors.split(",") if x.strip()]
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        env_origins = os.getenv("CORS_ORIGINS", "")
+        if env_origins:
+            return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+        ]
     
     # Supabase / Database
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")

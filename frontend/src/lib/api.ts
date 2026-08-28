@@ -8,24 +8,17 @@ export async function adminFetch(url: string, options: RequestInit = {}) {
 }
 
 export function getApiBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) {
+  if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL !== "/api") {
     return process.env.NEXT_PUBLIC_API_URL;
   }
-  if (typeof window !== "undefined") {
-    // In browser, use same-origin relative URL handled by Next.js rewrites proxy
-    return "/api";
-  }
-  return process.env.BACKEND_INTERNAL_URL ? `${process.env.BACKEND_INTERNAL_URL}/api` : "http://127.0.0.1:8000/api";
+  return "/api";
 }
 
 export function getBackendUrl(): string {
   if (process.env.NEXT_PUBLIC_BACKEND_URL) {
     return process.env.NEXT_PUBLIC_BACKEND_URL;
   }
-  if (typeof window !== "undefined") {
-    return "";
-  }
-  return process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000";
+  return "";
 }
 
 export const API_BASE_URL = "/api";
@@ -67,6 +60,63 @@ export interface MatchResponseData {
   count: number;
   matches: MatchResult[];
   message: string;
+}
+
+export interface PersonCluster {
+  cluster_id: string;
+  event_id: string;
+  name: string;
+  thumbnail_url: string;
+  face_count: number;
+  photo_count: number;
+  photos: {
+    photo_id: string;
+    image_url: string;
+    thumbnail_url: string;
+    bounding_box?: any;
+    created_at?: string;
+  }[];
+}
+
+export interface SyncTaskStatus {
+  task_id: string;
+  event_id: string;
+  status: "pending" | "downloading" | "indexing" | "completed" | "failed";
+  progress_message: string;
+  current: number;
+  total: number;
+  faces_detected: number;
+  created_at: string;
+  updated_at: string;
+  error?: string | null;
+}
+
+export interface AdminStatsData {
+  event_id: string;
+  event_code: string;
+  title: string;
+  total_photos: number;
+  total_faces_detected: number;
+  total_clusters: number;
+  is_protected?: boolean;
+  drive_link?: string;
+  photos: PhotoData[];
+}
+
+export interface AuditLogEntry {
+  id: string;
+  event_id?: string;
+  action: string;
+  details: Record<string, any>;
+  timestamp: string;
+}
+
+export interface EventSettingsData {
+  event_id: string;
+  similarity_threshold: number;
+  retention_days: number;
+  selfie_search_enabled: number;
+  downloads_enabled: number;
 }
 
 /**
@@ -127,22 +177,18 @@ export async function compressImage(file: File | Blob, maxDimension = 720, quali
 }
 
 /**
- * Normalizes photo image URLs to ensure clean same-origin paths
- * through Next.js proxy on all mobile, desktop, and tablet devices.
+ * Normalizes photo image URLs to ensure clean paths.
  */
 export function getFullImageUrl(url: string): string {
   if (!url) return "/placeholder.jpg";
   if (url.startsWith("http://") || url.startsWith("https://")) {
-    if (url.includes("/static/")) {
-      const idx = url.indexOf("/static/");
-      return url.substring(idx);
-    }
     return url;
   }
+  const backend = getBackendUrl();
   if (url.startsWith("/")) {
-    return url;
+    return backend ? `${backend}${url}` : url;
   }
-  return `/${url}`;
+  return backend ? `${backend}/${url}` : `/${url}`;
 }
 
 export async function createEvent(
@@ -151,41 +197,38 @@ export async function createEvent(
   password?: string,
   drive_link?: string
 ): Promise<EventData> {
-  const base = getApiBaseUrl();
-  const res = await fetch(`${base}/events/create`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/events/create`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      title,
-      event_code: event_code || null,
-      password: password || null,
-      drive_link: drive_link || null,
+      title: title.trim(),
+      event_code: event_code?.trim().toUpperCase() || undefined,
+      password: password?.trim() || undefined,
+      drive_link: drive_link?.trim() || undefined,
     }),
   });
   if (!res.ok) {
-    const err = await res.json();
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Failed to create event");
   }
-  return res.json();
+  return await res.json();
 }
 
-export async function verifyEventPassword(
-  event_code: string,
-  password: string
-): Promise<{ success: boolean; message: string }> {
+export async function verifyEventPassword(code: string, password?: string): Promise<boolean> {
   const res = await fetch(`${getApiBaseUrl()}/events/verify-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      event_code: event_code.trim().toUpperCase(),
-      password: password.trim(),
+      event_code: code.trim().toUpperCase(),
+      password: password?.trim() || "",
     }),
   });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Invalid event password");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Incorrect event passcode");
   }
-  return res.json();
+  const data = await res.json();
+  return data.success;
 }
 
 export async function importGoogleDrive(
@@ -201,37 +244,38 @@ export async function importGoogleDrive(
     }),
   });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Failed to import photos from Google Drive");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to download photos from Google Drive. Please ensure the folder sharing is set to 'Anyone with the link can view' (Public).");
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function getEventByCode(code: string): Promise<EventData> {
-  const res = await fetch(`${getApiBaseUrl()}/events/${encodeURIComponent(code)}`);
+  const cleanCode = decodeURIComponent(code).trim().toUpperCase();
+  const res = await fetch(`${getApiBaseUrl()}/events/${encodeURIComponent(cleanCode)}`);
   if (!res.ok) {
-    const err = await res.json();
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Event not found");
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function getEventPhotos(code: string, limit = 100, offset = 0): Promise<PhotoData[]> {
   const res = await fetch(
-    `${getApiBaseUrl()}/events/${encodeURIComponent(code)}/photos?limit=${limit}&offset=${offset}`
+    `${getApiBaseUrl()}/events/${encodeURIComponent(code.trim().toUpperCase())}/photos?limit=${limit}&offset=${offset}`
   );
   if (!res.ok) {
-    throw new Error("Failed to load event photos");
+    return [];
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function listEvents(): Promise<EventData[]> {
   const res = await fetch(`${getApiBaseUrl()}/events`);
   if (!res.ok) {
-    throw new Error("Failed to fetch events list");
+    return [];
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function deleteEvent(eventIdOrCode: string): Promise<void> {
@@ -250,25 +294,25 @@ export async function uploadBatchPhotos(
   onProgress?: (processed: number, total: number) => void
 ): Promise<PhotoData[]> {
   const total = files.length;
-  const BATCH_SIZE = 3;
+  const BATCH_SIZE = 4;
   const allResults: PhotoData[] = [];
 
   for (let i = 0; i < total; i += BATCH_SIZE) {
     const batch = files.slice(i, i + BATCH_SIZE);
-    const compressedBatch = await Promise.all(batch.map((f) => compressImage(f)));
+    const compressedBatch = await Promise.all(batch.map((f) => compressImage(f, 1600, 0.9)));
 
     const formData = new FormData();
     formData.append("event_id", eventId);
     compressedBatch.forEach((f) => formData.append("files", f));
 
-    const res = await fetch(`${getApiBaseUrl()}/photos/upload-batch`, {
+    const res = await adminFetch(`${getApiBaseUrl()}/photos/upload-batch`, {
       method: "POST",
       body: formData,
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Failed to upload batch photos");
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.detail || "Failed to upload batch photos to backend");
     }
 
     const batchRes: PhotoData[] = await res.json();
@@ -311,100 +355,77 @@ export async function syncDriveAdmin(
     }),
   });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Failed to start Google Drive sync");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Failed to start Google Drive sync.");
   }
-  return res.json();
-}
-
-export interface SyncTaskStatus {
-  task_id: string;
-  event_id: string;
-  status: "pending" | "downloading" | "indexing" | "completed" | "failed";
-  progress_message: string;
-  current: number;
-  total: number;
-  faces_detected: number;
-  created_at: string;
-  updated_at: string;
-  error?: string | null;
+  return await res.json();
 }
 
 export async function getSyncStatus(taskId: string): Promise<SyncTaskStatus> {
   const res = await adminFetch(`${getApiBaseUrl()}/admin/sync-status/${encodeURIComponent(taskId)}`);
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Could not fetch sync status");
+    throw new Error("Failed to fetch sync status");
   }
-  return res.json();
-}
-
-export interface AdminStatsData {
-  event_id: string;
-  event_code: string;
-  title: string;
-  total_photos: number;
-  total_faces_detected: number;
-  total_clusters: number;
-  is_protected: boolean;
-  drive_link?: string;
+  return await res.json();
 }
 
 export async function getAdminStats(eventId: string): Promise<AdminStatsData> {
   const res = await adminFetch(`${getApiBaseUrl()}/admin/stats/${encodeURIComponent(eventId)}`);
   if (!res.ok) {
-    throw new Error("Could not fetch event stats");
+    return {
+      event_id: eventId,
+      event_code: "",
+      title: "",
+      total_photos: 0,
+      total_faces_detected: 0,
+      total_clusters: 0,
+      photos: [],
+    };
   }
-  return res.json();
+  return await res.json();
 }
 
-export async function indexFacesAdmin(
-  eventId: string,
-  forceReindex = false
-): Promise<{ success: boolean; photos_processed: number; faces_detected: number; message: string }> {
+export async function indexFacesAdmin(eventId: string, forceReindex = false): Promise<{ success: boolean; photos_processed: number; faces_detected: number; message: string }> {
   const res = await adminFetch(`${getApiBaseUrl()}/admin/index-faces`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ event_id: eventId, force_reindex: forceReindex }),
   });
   if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.detail || "Failed to index faces");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Face indexing failed");
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function searchFaceApi(
   eventIdOrCode: string,
-  selfie: File | Blob | string,
-  threshold = 0.58
+  selfieFile: File | Blob | string,
+  threshold = 0.68
 ): Promise<MatchResponseData> {
-  if (typeof selfie === "string") {
-    // Base64 JSON
-    const res = await adminFetch(`${getApiBaseUrl()}/search-face`, {
+  let compressedSelfie: File;
+  if (typeof selfieFile === "string") {
+    // If base64 string or url
+    const res = await fetch(`${getApiBaseUrl()}/search-face`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        event_id: eventIdOrCode,
-        selfie_base64: selfie,
+        event_id: eventIdOrCode.trim().toUpperCase(),
+        selfie_base64: selfieFile,
         threshold: threshold,
       }),
     });
     if (!res.ok) {
-      const err = await res.json();
+      const err = await res.json().catch(() => ({}));
       throw new Error(err.detail || "Face search failed");
     }
-    return res.json();
+    return await res.json();
   }
 
-  // File / Blob multipart
-  const compressedSelfie =
-    selfie instanceof File
-      ? await compressImage(selfie, 720, 0.85)
-      : new File([selfie], "selfie.jpg", { type: "image/jpeg" });
+  compressedSelfie = await compressImage(selfieFile, 720, 0.85);
 
   const formData = new FormData();
-  formData.append("event_id", eventIdOrCode);
+  formData.append("event_id", eventIdOrCode.trim().toUpperCase());
   formData.append("threshold", String(threshold));
   formData.append("selfie", compressedSelfie);
 
@@ -414,11 +435,11 @@ export async function searchFaceApi(
   });
 
   if (!res.ok) {
-    const err = await res.json();
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Face search failed");
   }
 
-  return res.json();
+  return await res.json();
 }
 
 export const matchAttendeeSelfie = searchFaceApi;
@@ -433,10 +454,10 @@ export async function adminLogin(
     body: JSON.stringify({ email: email.trim(), password: password?.trim() || "admin123" }),
   });
   if (!res.ok) {
-    const err = await res.json();
+    const err = await res.json().catch(() => ({}));
     throw new Error(err.detail || "Admin authentication failed");
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function getAdminProfile(): Promise<{ admin_email: string; role: string; status: string }> {
@@ -444,7 +465,7 @@ export async function getAdminProfile(): Promise<{ admin_email: string; role: st
   if (!res.ok) {
     throw new Error("Could not fetch admin profile");
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function deletePhoto(photoId: string): Promise<boolean> {
@@ -480,34 +501,17 @@ export async function downloadPhotosZip(photoUrls: string[]): Promise<void> {
   window.URL.revokeObjectURL(url);
 }
 
-// --- PERSON DISCOVERY & CLUSTERING APIS ---
-export interface PersonCluster {
-  cluster_id: string;
-  event_id: string;
-  name: string;
-  thumbnail_url: string;
-  face_count: number;
-  photo_count: number;
-  photos: {
-    photo_id: string;
-    image_url: string;
-    thumbnail_url: string;
-    bounding_box?: any;
-    created_at?: string;
-  }[];
-}
-
 export async function getEventClusters(eventId: string): Promise<PersonCluster[]> {
-  const res = await fetch(`${getApiBaseUrl()}/clusters/event/${eventId}`);
+  const res = await fetch(`${getApiBaseUrl()}/clusters/event/${encodeURIComponent(eventId)}`);
   if (!res.ok) {
-    throw new Error("Failed to fetch event clusters");
+    return [];
   }
   const data = await res.json();
   return data.clusters || [];
 }
 
-export async function recomputeClusters(eventId: string, threshold = 0.38): Promise<PersonCluster[]> {
-  const res = await adminFetch(`${getApiBaseUrl()}/clusters/event/${eventId}/recluster?threshold=${threshold}`, {
+export async function recomputeClusters(eventId: string, threshold = 0.55): Promise<PersonCluster[]> {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/event/${encodeURIComponent(eventId)}/recluster?threshold=${threshold}`, {
     method: "POST",
   });
   if (!res.ok) {
@@ -518,10 +522,10 @@ export async function recomputeClusters(eventId: string, threshold = 0.38): Prom
 }
 
 export async function renamePersonCluster(clusterId: string, name: string): Promise<void> {
-  const res = await adminFetch(`${getApiBaseUrl()}/clusters/${clusterId}/name`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/${encodeURIComponent(clusterId)}/name`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name: name.trim() }),
   });
   if (!res.ok) {
     throw new Error("Failed to rename person cluster");
@@ -532,7 +536,10 @@ export async function mergePersonClusters(targetClusterId: string, sourceCluster
   const res = await adminFetch(`${getApiBaseUrl()}/clusters/merge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target_cluster_id: targetClusterId, source_cluster_id: sourceClusterId }),
+    body: JSON.stringify({
+      target_cluster_id: targetClusterId,
+      source_cluster_id: sourceClusterId,
+    }),
   });
   if (!res.ok) {
     throw new Error("Failed to merge person clusters");
@@ -540,7 +547,7 @@ export async function mergePersonClusters(targetClusterId: string, sourceCluster
 }
 
 export async function deletePersonBiometrics(clusterId: string): Promise<void> {
-  const res = await adminFetch(`${getApiBaseUrl()}/clusters/${clusterId}/biometrics`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/clusters/${encodeURIComponent(clusterId)}/biometrics`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -548,45 +555,33 @@ export async function deletePersonBiometrics(clusterId: string): Promise<void> {
   }
 }
 
-// --- SECURE TEMPORARY SHARING APIS ---
-export interface ShareLinkResponse {
-  success: boolean;
-  token: string;
-  share_url: string;
-  expires_in_hours: number;
-}
-
-export interface SharedGalleryData {
-  token: string;
-  event_id: string;
-  event_title: string;
-  event_code: string;
-  expires_at: string;
-  photos: PhotoData[];
-}
-
-export async function createTemporaryShareLink(eventId: string, photoIds: string[], expiryHours = 48): Promise<ShareLinkResponse> {
+export async function createShareToken(eventId: string, photoIds: string[], expiryHours = 48): Promise<{ token: string; share_url: string; expires_at: string }> {
   const res = await fetch(`${getApiBaseUrl()}/sharing/create`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ event_id: eventId, photo_ids: photoIds, expiry_hours: expiryHours }),
+    body: JSON.stringify({
+      event_id: eventId,
+      photo_ids: photoIds,
+      expiry_hours: expiryHours,
+    }),
   });
   if (!res.ok) {
-    throw new Error("Failed to create temporary sharing link");
+    throw new Error("Failed to create share token");
   }
-  return res.json();
+  return await res.json();
 }
 
-export async function getSharedGalleryPhotos(token: string): Promise<SharedGalleryData> {
-  const res = await fetch(`${getApiBaseUrl()}/sharing/${token}`);
+export async function getSharedPhotosByToken(token: string): Promise<{ event_id: string; event_title: string; event_code: string; photos: PhotoData[]; expires_at: string; is_revoked: boolean }> {
+  const res = await fetch(`${getApiBaseUrl()}/sharing/${encodeURIComponent(token)}`);
   if (!res.ok) {
-    throw new Error("This sharing link is invalid, expired, or has been revoked.");
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || "Share link expired or invalid");
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function revokeTemporaryShareLink(token: string): Promise<void> {
-  const res = await adminFetch(`${getApiBaseUrl()}/sharing/${token}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/${encodeURIComponent(token)}`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -594,25 +589,8 @@ export async function revokeTemporaryShareLink(token: string): Promise<void> {
   }
 }
 
-// --- PRIVACY & AUDIT LOG APIS ---
-export interface AuditLogEntry {
-  id: string;
-  event_id?: string;
-  action: string;
-  details: Record<string, any>;
-  timestamp: string;
-}
-
-export interface EventSettingsData {
-  event_id: string;
-  similarity_threshold: number;
-  retention_days: number;
-  selfie_search_enabled: number;
-  downloads_enabled: number;
-}
-
 export async function getEventAuditLogs(eventId: string): Promise<AuditLogEntry[]> {
-  const res = await adminFetch(`${getApiBaseUrl()}/sharing/audit-logs/${eventId}`);
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/audit-logs/${encodeURIComponent(eventId)}`);
   if (!res.ok) {
     return [];
   }
@@ -621,7 +599,7 @@ export async function getEventAuditLogs(eventId: string): Promise<AuditLogEntry[
 }
 
 export async function deleteEventBiometrics(eventId: string): Promise<void> {
-  const res = await adminFetch(`${getApiBaseUrl()}/sharing/event/${eventId}/biometrics`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/event/${encodeURIComponent(eventId)}/biometrics`, {
     method: "DELETE",
   });
   if (!res.ok) {
@@ -630,17 +608,17 @@ export async function deleteEventBiometrics(eventId: string): Promise<void> {
 }
 
 export async function getEventSettings(eventId: string): Promise<EventSettingsData> {
-  const res = await adminFetch(`${getApiBaseUrl()}/sharing/settings/${eventId}`);
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/settings/${encodeURIComponent(eventId)}`);
   if (!res.ok) {
     return {
       event_id: eventId,
-      similarity_threshold: 0.35,
+      similarity_threshold: 0.68,
       retention_days: 90,
       selfie_search_enabled: 1,
       downloads_enabled: 1,
     };
   }
-  return res.json();
+  return await res.json();
 }
 
 export async function updateEventSettings(
@@ -652,7 +630,7 @@ export async function updateEventSettings(
     downloads_enabled: boolean;
   }
 ): Promise<EventSettingsData> {
-  const res = await adminFetch(`${getApiBaseUrl()}/sharing/settings/${eventId}`, {
+  const res = await adminFetch(`${getApiBaseUrl()}/sharing/settings/${encodeURIComponent(eventId)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
@@ -663,3 +641,15 @@ export async function updateEventSettings(
   const data = await res.json();
   return data.settings;
 }
+
+export interface SharedGalleryData {
+  event_id: string;
+  event_title: string;
+  event_code: string;
+  photos: PhotoData[];
+  expires_at: string;
+  is_revoked: boolean;
+}
+
+export const createTemporaryShareLink = createShareToken;
+export const getSharedGalleryPhotos = getSharedPhotosByToken;

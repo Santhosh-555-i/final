@@ -107,8 +107,12 @@ export default function AdminDashboardPage() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
-  // Check persisted admin session on load
+  // Check persisted admin session on load & clear legacy mock caches
   useEffect(() => {
+    try {
+      localStorage.removeItem("eventlens_events_db");
+      localStorage.removeItem("eventlens_photos_db");
+    } catch {}
     const storedEmail = sessionStorage.getItem("eventlens_admin_email");
     if (storedEmail && storedEmail.toLowerCase() === DESIGNATED_ADMIN_EMAIL.toLowerCase()) {
       setIsAdminLoggedIn(true);
