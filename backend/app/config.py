@@ -10,13 +10,18 @@ class Settings:
     API_PREFIX: str = "/api"
     
     # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:3001",
-        "*"
-    ]
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        env_origins = os.getenv("CORS_ORIGINS", "")
+        if env_origins:
+            return [origin.strip() for origin in env_origins.split(",") if origin.strip()]
+        return [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:3001",
+            "*"
+        ]
     
     # Supabase / Database
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")

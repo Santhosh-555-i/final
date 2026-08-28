@@ -37,11 +37,18 @@ An AI-powered event photography platform that automatically identifies attendees
 
 ---
 
-## 🚀 Quickstart Guide
+## 🚀 Cloud Deployment
 
-### Prerequisites
-- Python 3.10+
-- Node.js 18+ and npm
+Ready to take EventLens AI live to production? See the step-by-step **[Complete Cloud Deployment Guide](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/DEPLOYMENT_GUIDE.md)**:
+
+- **Frontend**: [Vercel](https://vercel.com) (Next.js Global Edge Network)
+- **Backend**: [Render](https://render.com) (1-Click `render.yaml` Blueprint) or [Railway](https://railway.app)
+- **Database & Storage**: [Supabase](https://supabase.com) (`backend/schema.sql`)
+- **Self-Hosted VPS**: Single command `docker compose up -d --build`
+
+---
+
+## 💻 Local Development Quickstart
 
 ---
 

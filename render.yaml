@@ -1,0 +1,27 @@
+services:
+  # EventLens AI Backend Web Service on Render
+  - type: web
+    name: eventlens-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: "pip install --no-cache-dir -U pip && pip install --no-cache-dir -r requirements-cpu.txt"
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1"
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.13
+      - key: SIMILARITY_THRESHOLD
+        value: "0.68"
+      - key: ADMIN_EMAIL
+        value: "santosh2005th@gmail.com"
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        value: "*"

@@ -1,7 +1,11 @@
--- EventLens Database Schema for Supabase (PostgreSQL + pgvector)
+-- =========================================================
+-- EventLens AI — Complete Supabase PostgreSQL + pgvector Schema
+-- Execute this entire script in Supabase SQL Editor
+-- =========================================================
 
--- Enable pgvector extension
+-- Enable pgvector and UUID extensions
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- 1. Events Table
 CREATE TABLE IF NOT EXISTS events (
@@ -27,28 +31,75 @@ CREATE TABLE IF NOT EXISTS photos (
 
 CREATE INDEX IF NOT EXISTS idx_photos_event_id ON photos(event_id);
 
--- 3. Face Embeddings Table
+-- 3. Person Discovery & Clustering Table
+CREATE TABLE IF NOT EXISTS person_clusters (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    thumbnail_url TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_clusters_event_id ON person_clusters(event_id);
+
+-- 4. Face Embeddings Table (512-d FaceNet Vectors)
 CREATE TABLE IF NOT EXISTS face_embeddings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     photo_id UUID NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
     event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    cluster_id UUID REFERENCES person_clusters(id) ON DELETE SET NULL,
     embedding vector(512) NOT NULL,
     bounding_box JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_face_embeddings_event_id ON face_embeddings(event_id);
+CREATE INDEX IF NOT EXISTS idx_face_embeddings_cluster_id ON face_embeddings(cluster_id);
 
--- Cosine Distance HNSW Index for ultra-fast vector search
+-- Cosine Distance HNSW Index for ultra-fast vector similarity search
 CREATE INDEX IF NOT EXISTS idx_face_embeddings_vector 
 ON face_embeddings 
 USING hnsw (embedding vector_cosine_ops);
 
--- RPC Function for Cosine Similarity Search
+-- 5. Temporary Sharing Tokens Table
+CREATE TABLE IF NOT EXISTS share_tokens (
+    token VARCHAR(64) PRIMARY KEY,
+    event_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    photo_ids_json TEXT NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_revoked BOOLEAN DEFAULT FALSE
+);
+
+CREATE INDEX IF NOT EXISTS idx_share_tokens_event_id ON share_tokens(event_id);
+
+-- 6. Security & Privacy Audit Logs Table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+    action VARCHAR(100) NOT NULL,
+    details_json TEXT,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_event_id ON audit_logs(event_id);
+
+-- 7. Event Privacy & Governance Settings Table
+CREATE TABLE IF NOT EXISTS event_settings (
+    event_id UUID PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+    similarity_threshold REAL DEFAULT 0.68,
+    retention_days INTEGER DEFAULT 90,
+    selfie_search_enabled BOOLEAN DEFAULT TRUE,
+    downloads_enabled BOOLEAN DEFAULT TRUE
+);
+
+-- =========================================================
+-- Vector Matching RPC Stored Function
+-- =========================================================
 CREATE OR REPLACE FUNCTION match_face_embeddings(
     target_event_id UUID,
     query_embedding vector(512),
-    match_threshold FLOAT DEFAULT 0.55,
+    match_threshold FLOAT DEFAULT 0.68,
     match_count INT DEFAULT 50
 )
 RETURNS TABLE (
@@ -71,3 +122,22 @@ BEGIN
     LIMIT match_count;
 END;
 $$;
+
+-- =========================================================
+-- Supabase Storage Bucket Initialization
+-- Note: You can also create the public 'photos' bucket in 
+-- the Supabase Storage Dashboard UI with 1 click.
+-- =========================================================
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('photos', 'photos', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow public read access to photos bucket
+CREATE POLICY "Public Read Access" 
+ON storage.objects FOR SELECT 
+USING (bucket_id = 'photos');
+
+-- Allow authenticated/service uploads to photos bucket
+CREATE POLICY "Public / Service Upload Access" 
+ON storage.objects FOR INSERT 
+WITH CHECK (bucket_id = 'photos');
