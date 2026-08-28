@@ -260,13 +260,47 @@ class GoogleDriveImporter:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _download_drive_folder(self, folder_id: str, folder_url: str, output_dir: str) -> List[str]:
-        """Downloads all images from a public Google Drive folder using gdown and targeted web scraper"""
+        """Downloads all images from a public Google Drive folder fast with concurrent streams"""
         results: List[str] = []
 
-        # Attempt 1: gdown download_folder with fast execution
+        # Fast pre-check to avoid long gdown backoff delays on 404/restricted folders
+        try:
+            check_resp = requests.get(
+                f"https://drive.google.com/drive/folders/{folder_id}",
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=4
+            )
+            if check_resp.status_code == 404:
+                print(f"[Drive Importer] Google Drive folder {folder_id} returned 404 (Restricted or non-public).")
+                return []
+        except Exception:
+            pass
+
+        # Attempt 1: Direct concurrent scraping & stream download (sub-second)
+        try:
+            items = google_drive_helper.list_folder_files(folder_id)
+            if items:
+                print(f"[Drive Importer] Retrieved {len(items)} items from Drive Helper. Downloading concurrently...")
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    futures = {
+                        executor.submit(self._download_single_drive_file, item["id"], output_dir): item["id"]
+                        for item in items[:100]
+                    }
+                    for future in as_completed(futures):
+                        try:
+                            path = future.result()
+                            if path:
+                                results.append(path)
+                        except Exception:
+                            pass
+                if results:
+                    return results
+        except Exception as e:
+            print(f"[Drive Importer Scraper Notice] {e}")
+
+        # Attempt 2: gdown download_folder fallback
         try:
             import gdown
-            print(f"[Drive Importer] Running gdown folder download for {folder_id}...")
             folder_out_dir = os.path.join(output_dir, f"folder_{folder_id}")
             os.makedirs(folder_out_dir, exist_ok=True)
             
@@ -282,32 +316,8 @@ class GoogleDriveImporter:
                     ext = os.path.splitext(file)[1].lower()
                     if ext in self.IMAGE_EXTENSIONS:
                         results.append(os.path.join(root, file))
-
-            if results:
-                print(f"[Drive Importer] gdown folder download retrieved {len(results)} images.")
-                return results
         except Exception as e:
             print(f"[Drive Importer Notice] gdown folder download attempt: {e}")
-
-        # Attempt 2: Targeted Public Google Drive folder items
-        try:
-            items = google_drive_helper.list_folder_files(folder_id)
-            if items:
-                print(f"[Drive Importer] Retrieved {len(items)} items from Drive Helper. Downloading concurrently...")
-                with ThreadPoolExecutor(max_workers=8) as executor:
-                    futures = {
-                        executor.submit(self._download_single_drive_file, item["id"], output_dir): item["id"]
-                        for item in items[:100]
-                    }
-                    for future in as_completed(futures):
-                        try:
-                            path = future.result()
-                            if path:
-                                results.append(path)
-                        except Exception:
-                            pass
-        except Exception as e:
-            print(f"[Drive Importer Scraper Notice] {e}")
 
         return results
 
