@@ -25,18 +25,29 @@ class FaceClusteringEngine:
                 actual_event_id = ev_res.data[0]["id"]
 
             emb_res = supabase.table("face_embeddings").select(
-                "id, photo_id, embedding, bounding_box, cluster_id, photos(image_url, thumbnail_url, created_at)"
+                "id, photo_id, embedding, bounding_box, cluster_id"
             ).eq("event_id", actual_event_id).execute()
             
+            raw_embs = emb_res.data or []
+            photo_ids = list({r["photo_id"] for r in raw_embs if r.get("photo_id")})
+            photo_map = {}
+            if photo_ids:
+                try:
+                    p_res = supabase.table("photos").select("id, image_url, thumbnail_url, created_at").in_("id", photo_ids).execute()
+                    for p in (p_res.data or []):
+                        photo_map[p["id"]] = p
+                except Exception as p_err:
+                    print(f"[Clustering Warning] Error loading photos: {p_err}")
+
             rows = []
-            for r in (emb_res.data or []):
-                p = r.get("photos", {})
+            for r in raw_embs:
+                p = photo_map.get(r.get("photo_id"), {})
                 rows.append({
                     "emb_id": r["id"],
                     "photo_id": r["photo_id"],
                     "embedding": r["embedding"],
-                    "bounding_box_json": r["bounding_box"],
-                    "cluster_id": r["cluster_id"],
+                    "bounding_box_json": r.get("bounding_box"),
+                    "cluster_id": r.get("cluster_id"),
                     "image_url": p.get("image_url"),
                     "thumbnail_url": p.get("thumbnail_url"),
                     "created_at": p.get("created_at")
@@ -207,18 +218,30 @@ class FaceClusteringEngine:
             results = []
             for c in c_rows:
                 cid = c["id"]
-                faces_res = supabase.table("face_embeddings").select("id, photo_id, bounding_box, photos(image_url, thumbnail_url, created_at)").eq("cluster_id", cid).execute()
-                
-                photo_map = {}
+                faces_res = supabase.table("face_embeddings").select("id, photo_id, bounding_box").eq("cluster_id", cid).execute()
                 faces = faces_res.data or []
+                photo_ids = list({f["photo_id"] for f in faces if f.get("photo_id")})
+                p_map = {}
+                if photo_ids:
+                    try:
+                        p_res = supabase.table("photos").select("id, image_url, thumbnail_url, created_at").in_("id", photo_ids).execute()
+                        for p in (p_res.data or []):
+                            p_map[p["id"]] = p
+                    except Exception:
+                        pass
+                
+                photo_set = {}
                 for f in faces:
                     pid = f["photo_id"]
-                    p = f.get("photos", {})
-                    if pid not in photo_map:
-                        bbox = f["bounding_box"]
+                    p = p_map.get(pid, {})
+                    if pid not in photo_set:
+                        bbox = f.get("bounding_box")
                         if isinstance(bbox, str):
-                            bbox = json.loads(bbox)
-                        photo_map[pid] = {
+                            try:
+                                bbox = json.loads(bbox)
+                            except Exception:
+                                pass
+                        photo_set[pid] = {
                             "photo_id": pid,
                             "image_url": p.get("image_url"),
                             "thumbnail_url": p.get("thumbnail_url"),
@@ -230,10 +253,10 @@ class FaceClusteringEngine:
                     "cluster_id": cid,
                     "event_id": actual_event_id,
                     "name": c["name"],
-                    "thumbnail_url": c["thumbnail_url"],
+                    "thumbnail_url": c.get("thumbnail_url"),
                     "face_count": len(faces),
-                    "photo_count": len(photo_map),
-                    "photos": list(photo_map.values())
+                    "photo_count": len(photo_set),
+                    "photos": list(photo_set.values())
                 })
             return results
         else:
