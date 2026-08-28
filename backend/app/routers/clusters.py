@@ -7,7 +7,9 @@ from app.config import settings
 from app.routers.auth import get_current_admin
 
 router = APIRouter(prefix="/clusters", tags=["Person Discovery & Clusters"])
-clustering_engine = FaceClusteringEngine(db_service.db_path)
+clustering_engine = FaceClusteringEngine(
+    db_service.db_path if settings.DB_MODE == "sqlite" else None
+)
 
 class RenameClusterRequest(BaseModel):
     name: str

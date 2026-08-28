@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 from app.config import settings
 
 class FaceClusteringEngine:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: Optional[str] = None):
         self.db_path = db_path
 
     def _get_supabase(self):

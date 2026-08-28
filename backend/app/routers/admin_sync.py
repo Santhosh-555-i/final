@@ -149,14 +149,18 @@ def get_event_stats(event_id: str):
     clusters = db_service.get_event_clusters(event_id) if hasattr(db_service, "get_event_clusters") else []
 
     total_faces = 0
-    # Query total faces from SQLite
+    # Query total faces from the correct DB backend
     try:
-        import sqlite3
-        conn = sqlite3.connect(db_service.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM face_embeddings WHERE event_id = ?", (event_id,))
-        total_faces = cursor.fetchone()[0]
-        conn.close()
+        if settings.DB_MODE == "supabase":
+            fe_res = db_service.supabase.table("face_embeddings").select("id", count="exact").eq("event_id", event_id).execute()
+            total_faces = fe_res.count if fe_res.count is not None else len(fe_res.data or [])
+        else:
+            import sqlite3
+            conn = sqlite3.connect(db_service.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM face_embeddings WHERE event_id = ?", (event_id,))
+            total_faces = cursor.fetchone()[0]
+            conn.close()
     except Exception:
         total_faces = len(photos)
 
