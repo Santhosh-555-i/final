@@ -88,5 +88,5 @@ def update_event_settings(event_id: str, req: UpdateSettingsRequest, admin_email
         req.selfie_search_enabled,
         req.downloads_enabled
     )
-    db_service.log_audit_action(event_id, "UPDATE_SETTINGS", req.dict())
+    db_service.log_audit_action(event_id, "UPDATE_SETTINGS", req.model_dump())
     return {"success": True, "settings": res}

@@ -5,12 +5,12 @@ import sqlite3
 import hashlib
 import urllib.parse
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Tuple
 from passlib.context import CryptContext
 from app.config import settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = None  # passlib replaced by direct bcrypt calls below
 
 class DatabaseService:
     def __init__(self):
@@ -148,12 +148,24 @@ class DatabaseService:
         conn.close()
 
     def _hash_password(self, password: str) -> str:
-        return pwd_context.hash(password.strip())
+        """Hash password using bcrypt directly (compatible with bcrypt 4.x+)."""
+        import bcrypt
+        pw = password.strip().encode("utf-8")
+        # bcrypt has a 72-byte hard limit — truncate for safety
+        if len(pw) > 72:
+            pw = pw[:72]
+        return bcrypt.hashpw(pw, bcrypt.gensalt()).decode("utf-8")
         
     def _verify_password(self, plain_password: str, hashed_password: str) -> bool:
+        """Verify password using bcrypt directly, with SHA-256 fallback for legacy hashes."""
+        import bcrypt
         try:
-            return pwd_context.verify(plain_password.strip(), hashed_password)
+            pw = plain_password.strip().encode("utf-8")
+            if len(pw) > 72:
+                pw = pw[:72]
+            return bcrypt.checkpw(pw, hashed_password.encode("utf-8"))
         except Exception:
+            # Legacy SHA-256 fallback for old hashes
             old_hash = hashlib.sha256(plain_password.strip().encode("utf-8")).hexdigest()
             return old_hash == hashed_password
 
@@ -171,7 +183,7 @@ class DatabaseService:
         else:
             event_code = event_code.strip().upper()
 
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
         is_protected = bool(password and password.strip())
         password_hash = self._hash_password(password) if is_protected else None
         clean_drive_link = drive_link.strip() if drive_link and drive_link.strip() else None
@@ -469,7 +481,7 @@ class DatabaseService:
         self, event_id: str, image_url: str, thumbnail_url: str, faces: List[Dict]
     ) -> Dict:
         photo_id = str(uuid.uuid4())
-        created_at = datetime.utcnow().isoformat()
+        created_at = datetime.now(timezone.utc).isoformat()
 
         if settings.DB_MODE == "supabase":
             try:
@@ -720,7 +732,7 @@ class DatabaseService:
         import secrets
         from datetime import timedelta
         token = secrets.token_urlsafe(32)
-        created_at = datetime.utcnow()
+        created_at = datetime.now(timezone.utc)
         expires_at = created_at + timedelta(hours=expiry_hours)
 
         if settings.DB_MODE == "supabase":
@@ -756,7 +768,7 @@ class DatabaseService:
                 
                 row = res.data
                 expires_at = datetime.fromisoformat(row["expires_at"])
-                if datetime.utcnow() > expires_at:
+                if datetime.now(timezone.utc) > expires_at:
                     return None
 
                 ev_res = self.supabase.table("events").select("id, title, event_code").eq("id", row["event_id"]).single().execute()
@@ -791,7 +803,7 @@ class DatabaseService:
                 return None
 
             expires_at = datetime.fromisoformat(row["expires_at"])
-            if datetime.utcnow() > expires_at:
+            if datetime.now(timezone.utc) > expires_at:
                 conn.close()
                 return None
 
@@ -853,7 +865,7 @@ class DatabaseService:
     # --- AUDIT LOGS ---
     def log_audit_action(self, event_id: Optional[str], action: str, details: Optional[Dict] = None):
         log_id = str(uuid.uuid4())
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         details_str = json.dumps(details or {})
         
         if settings.DB_MODE == "supabase":

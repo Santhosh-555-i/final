@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict
 from app.database import db_service
 from app.config import settings
@@ -8,7 +8,7 @@ import sqlite3
 class SyncTaskTracker:
     def create_task(self, event_id: str) -> str:
         task_id = str(uuid.uuid4())
-        now_str = datetime.utcnow().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         if settings.DB_MODE == "supabase":
             try:
                 db_service.supabase.table("sync_jobs").insert({
@@ -33,7 +33,7 @@ class SyncTaskTracker:
         return task_id
 
     def update_task(self, task_id: str, **kwargs):
-        now_str = datetime.utcnow().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         update_data = {"updated_at": now_str}
         
         if "status" in kwargs:

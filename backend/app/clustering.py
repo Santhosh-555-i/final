@@ -2,7 +2,7 @@ import json
 import uuid
 import sqlite3
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from app.config import settings
 
@@ -119,7 +119,7 @@ class FaceClusteringEngine:
             conn.close()
 
         cluster_results = []
-        now_str = datetime.utcnow().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         used_cluster_ids = set()
 
         for idx, comp in enumerate(components):
@@ -312,7 +312,7 @@ class FaceClusteringEngine:
 
     def split_face(self, embedding_id: str, new_person_name: str) -> str:
         new_cluster_id = str(uuid.uuid4())
-        now_str = datetime.utcnow().isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
         
         if settings.DB_MODE == "supabase":
             supabase = self._get_supabase()

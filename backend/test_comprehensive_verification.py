@@ -14,29 +14,41 @@ def test_1_admin_auth():
     print("[Test 1] Verifying Admin Authentication Credentials...")
     print("=" * 60)
     
-    assert "santosh2005th@gmail.com" in settings.ALLOWED_ADMIN_EMAILS, "santosh2005th@gmail.com missing from config"
-    assert settings.ADMIN_EMAIL == "santosh2005th@gmail.com", f"Expected primary admin santosh2005th@gmail.com, got {settings.ADMIN_EMAIL}"
+    # Verify that ADMIN_EMAIL is set
+    assert settings.ADMIN_EMAIL, "ADMIN_EMAIL must be set in config/env"
+    print(f" [OK] ADMIN_EMAIL configured: {settings.ADMIN_EMAIL}")
     
-    # Test valid and invalid logins
+    # Test valid and invalid logins using the configured credentials
     from fastapi.testclient import TestClient
+    from unittest.mock import patch
     from app.main import app
     client = TestClient(app)
     
-    # 1. Primary admin email
-    res1 = client.post("/api/auth/login", json={"email": "santosh2005th@gmail.com", "password": "admin123"})
-    assert res1.status_code == 200, f"Failed primary admin login: {res1.text}"
-    assert res1.json()["email"] == "santosh2005th@gmail.com"
-    print(" [OK] Primary Admin login (santosh2005th@gmail.com) authorized successfully!")
+    TEST_EMAIL = "admin@example.com"
+    TEST_PASSWORD = "admin123"
+    TEST_SECRET = "test-jwt-secret-comprehensive-32chars"
 
-    # 2. Case insensitive & whitespace trimmed
-    res2 = client.post("/api/auth/login", json={"email": "  SANTOSH2005TH@GMAIL.COM  ", "password": "admin123"})
-    assert res2.status_code == 200, "Failed case-insensitive admin login"
-    print(" [OK] Case-insensitive & trimmed login authorized successfully!")
+    with patch.multiple(
+        "app.routers.auth.settings",
+        ADMIN_EMAIL=TEST_EMAIL,
+        ADMIN_PASSWORD=TEST_PASSWORD,
+        ADMIN_JWT_SECRET=TEST_SECRET,
+    ):
+        # 1. Valid login
+        res1 = client.post("/api/auth/login", json={"email": TEST_EMAIL, "password": TEST_PASSWORD})
+        assert res1.status_code == 200, f"Failed admin login: {res1.text}"
+        assert res1.json()["email"] == TEST_EMAIL
+        print(f" [OK] Admin login ({TEST_EMAIL}) authorized successfully!")
 
-    # 3. Unauthorized email rejection
-    res3 = client.post("/api/auth/login", json={"email": "intruder@example.com", "password": "admin123"})
-    assert res3.status_code == 403, "Failed to reject unauthorized email"
-    print(" [OK] Unauthorized emails correctly rejected with 403 Forbidden!")
+        # 2. Case insensitive & whitespace trimmed
+        res2 = client.post("/api/auth/login", json={"email": f"  {TEST_EMAIL.upper()}  ", "password": TEST_PASSWORD})
+        assert res2.status_code == 200, "Failed case-insensitive admin login"
+        print(" [OK] Case-insensitive & trimmed login authorized successfully!")
+
+        # 3. Unauthorized email rejection
+        res3 = client.post("/api/auth/login", json={"email": "intruder@example.com", "password": TEST_PASSWORD})
+        assert res3.status_code == 403, "Failed to reject unauthorized email"
+        print(" [OK] Unauthorized emails correctly rejected with 403 Forbidden!")
 
 def test_2_unclear_blurry_photo_matching():
     print("\n" + "=" * 60)

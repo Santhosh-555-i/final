@@ -3,10 +3,10 @@ from typing import List, Optional, Any, Dict
 from datetime import datetime
 
 class EventCreate(BaseModel):
-    title: str = Field(..., example="Grand Wedding 2026")
-    event_code: Optional[str] = Field(None, example="WEDDING2026")
-    password: Optional[str] = Field(None, example="123456", description="Optional passcode required to view/download photos")
-    drive_link: Optional[str] = Field(None, example="https://drive.google.com/drive/folders/...", description="Optional Google Drive folder or files link")
+    title: str = Field(..., json_schema_extra={"example": "Grand Wedding 2026"})
+    event_code: Optional[str] = Field(None, json_schema_extra={"example": "WEDDING2026"})
+    password: Optional[str] = Field(None, description="Optional passcode required to view/download photos", json_schema_extra={"example": "123456"})
+    drive_link: Optional[str] = Field(None, description="Optional Google Drive folder or files link", json_schema_extra={"example": "https://drive.google.com/drive/folders/..."})
 
 class EventOut(BaseModel):
     id: str
@@ -56,8 +56,8 @@ class MatchResponse(BaseModel):
     message: str
 
 class AdminLoginRequest(BaseModel):
-    email: str = Field(..., example="satosh2005th@gmail.com")
-    password: Optional[str] = Field("admin123", example="admin123")
+    email: str = Field(..., json_schema_extra={"example": "admin@example.com"})
+    password: Optional[str] = Field("admin123", json_schema_extra={"example": "admin123"})
 
 class AdminLoginResponse(BaseModel):
     success: bool
