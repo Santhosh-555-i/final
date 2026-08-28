@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>EventSnap - Scanning...</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary": "#7bd0ff",
+                        "surface-container-low": "#131b2e",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-container": "#560038",
+                        "on-tertiary-fixed": "#3d0026",
+                        "error": "#ffb4ab",
+                        "on-primary": "#1000a9",
+                        "surface-bright": "#31394d",
+                        "tertiary-fixed": "#ffd8e7",
+                        "inverse-on-surface": "#283044",
+                        "outline-variant": "#464554",
+                        "error-container": "#93000a",
+                        "secondary-fixed": "#c4e7ff",
+                        "on-secondary-container": "#00374d",
+                        "secondary-fixed-dim": "#7bd0ff",
+                        "on-secondary": "#00354a",
+                        "on-error": "#690005",
+                        "surface-dim": "#0b1326",
+                        "primary-fixed": "#e1e0ff",
+                        "on-primary-container": "#0d0096",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "surface-container-highest": "#2d3449",
+                        "secondary-container": "#00a6e0",
+                        "background": "#0b1326",
+                        "on-secondary-fixed": "#001e2c",
+                        "surface": "#0b1326",
+                        "tertiary-fixed-dim": "#ffafd3",
+                        "on-tertiary-fixed-variant": "#85145a",
+                        "on-surface-variant": "#c7c4d7",
+                        "on-surface": "#dae2fd",
+                        "surface-tint": "#c0c1ff",
+                        "on-primary-fixed": "#07006c",
+                        "primary-container": "#8083ff",
+                        "tertiary-container": "#e364a7",
+                        "on-tertiary": "#620040",
+                        "surface-variant": "#2d3449",
+                        "primary": "#c0c1ff",
+                        "on-background": "#dae2fd",
+                        "tertiary": "#ffafd3",
+                        "surface-container": "#171f33",
+                        "inverse-primary": "#494bd6",
+                        "on-secondary-fixed-variant": "#004c69",
+                        "surface-container-high": "#222a3d",
+                        "surface-container-lowest": "#060e20",
+                        "outline": "#908fa0",
+                        "inverse-surface": "#dae2fd"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "margin-mobile": "16px",
+                        "xs": "8px",
+                        "md": "24px",
+                        "lg": "40px",
+                        "margin-desktop": "48px",
+                        "gutter": "24px",
+                        "base": "4px",
+                        "xl": "64px",
+                        "sm": "16px"
+                    },
+                    "fontFamily": {
+                        "body-lg": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-md": ["Inter"],
+                        "display-lg-mobile": ["Plus Jakarta Sans"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "display-lg": ["Plus Jakarta Sans"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "display-lg-mobile": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "700" }],
+                        "headline-sm": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(90deg, transparent, rgba(192, 193, 255, 0.8), transparent);
+            box-shadow: 0 0 20px 5px rgba(192, 193, 255, 0.4);
+            animation: scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+        }
+
+        @keyframes scan {
+            0% { transform: translateY(-10%); opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { transform: translateY(110%); opacity: 0; }
+        }
+
+        .mesh-grid {
+            background-size: 40px 40px;
+            background-image: 
+                linear-gradient(to right, rgba(192, 193, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(192, 193, 255, 0.05) 1px, transparent 1px);
+            mask-image: radial-gradient(circle at center, black, transparent 80%);
+            -webkit-mask-image: radial-gradient(circle at center, black, transparent 80%);
+        }
+
+        .pulse-ring {
+            animation: pulse-ring 3s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            80%, 100% { transform: scale(2.5); opacity: 0; }
+        }
+
+        .text-fade-in-out {
+            animation: fadeText 6s infinite;
+        }
+
+        @keyframes fadeText {
+            0%, 25% { opacity: 1; content: "Extracting face vectors..."; }
+            33%, 58% { opacity: 1; content: "Searching 1,420 event photos..."; }
+            66%, 91% { opacity: 1; content: "Matching found!"; }
+            100% { opacity: 0; }
+        }
+        
+        .glow-effect {
+            box-shadow: 0 0 40px rgba(192, 193, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background h-screen w-full overflow-hidden flex flex-col relative selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top Navigation omitted as this is a linear/transactional full-screen state -->
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col items-center justify-center relative w-full h-full z-10 px-margin-mobile md:px-margin-desktop">
+<!-- Animated Mesh Background Overlay -->
+<div class="absolute inset-0 mesh-grid opacity-50 z-0 pointer-events-none"></div>
+<!-- Scanning Subject Container -->
+<div class="relative z-10 flex flex-col items-center justify-center w-full max-w-[400px]">
+<!-- Avatar / Scan Target -->
+<div class="relative w-48 h-48 md:w-64 md:h-64 rounded-full overflow-hidden border-2 border-primary/30 glow-effect bg-surface-container-high mb-xl">
+<!-- Concentric Pulse Rings -->
+<div class="absolute inset-0 rounded-full border border-primary/50 pulse-ring pointer-events-none"></div>
+<div class="absolute inset-0 rounded-full border border-primary/30 pulse-ring pointer-events-none" style="animation-delay: 1s;"></div>
+<!-- Target Image -->
+<img alt="Scanning face" class="w-full h-full object-cover opacity-80 mix-blend-luminosity" data-alt="A futuristic, high-tech minimalist portrait of an individual in a dark setting, illuminated by subtle, glowing indigo and deep slate blue light patterns reflecting off their face. The style is modern corporate glassmorphism, emphasizing privacy and cutting-edge facial recognition technology." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAIuaVZXdfwvpyfNdZJLbG7HIdHm7l_lMKZIRAd4uZ2wsgAgkAsAnnYp33JdQMmWJLQGS6HprzJ0318eOftMoEkZyYBxoZB8VHaYkPZM-fnveleAhkn1CzyjlB508_J_aZhHhPlN_xJpAdYw23eIXHov62b31uAcnXRwkH_RoIkgZKMHTD4GySOgryfyPyYBC_-b4kc39IeXc-Ry8O8TV9lzzqbMoVt94VpFUx37vkl53FDVncV18n2"/>
+<!-- The Scanning Laser Line -->
+<div class="scan-line h-full w-full absolute top-0 left-0 bg-gradient-to-b from-transparent via-primary/20 to-primary/60" style="animation: scan 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; clip-path: inset(0 0 0 0);">
+<div class="absolute bottom-0 w-full h-1 bg-primary shadow-[0_0_15px_rgba(192,193,255,0.8)]"></div>
+</div>
+<!-- Overlay Gradient for Depth -->
+<div class="absolute inset-0 rounded-full ring-inset ring-2 ring-white/5 backdrop-blur-[2px]"></div>
+</div>
+<!-- Dynamic Status Text -->
+<div class="text-center space-y-md">
+<div class="flex items-center justify-center space-x-xs text-primary mb-xs">
+<span class="material-symbols-outlined animate-spin" data-icon="sync" style="font-variation-settings: 'FILL' 0;">sync</span>
+<span class="font-label-caps text-label-caps text-primary tracking-widest uppercase">Processing</span>
+</div>
+<!-- Rotating Text (Handled via JS for better control over the specific requested strings) -->
+<h2 class="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface h-[80px] flex items-center justify-center transition-opacity duration-500" id="status-text">
+                    Extracting face vectors...
+                </h2>
+<p class="font-body-md text-body-md text-on-surface-variant max-w-sm mx-auto">
+                    Securely analyzing biometric data with end-to-end encryption.
+                </p>
+</div>
+<!-- Technical Progress Bar -->
+<div class="w-full mt-xl h-1 bg-surface-container-high rounded-full overflow-hidden relative">
+<div class="absolute top-0 left-0 h-full bg-primary w-1/3 rounded-full shadow-[0_0_10px_rgba(192,193,255,0.5)]" style="animation: progress 6s ease-in-out infinite;"></div>
+</div>
+<style>
+                @keyframes progress {
+                    0% { width: 0%; left: 0%; }
+                    50% { width: 40%; left: 30%; }
+                    100% { width: 100%; left: 0%; }
+                }
+            </style>
+</div>
+</main>
+<!-- Bottom Nav / Shell omitted intentionally for this focused scanning state -->
+<script>
+        // Simple script to cycle through the status texts smoothly
+        const statuses = [
+            "Extracting face vectors...",
+            "Searching 1,420 event photos...",
+            "Matching found!"
+        ];
+        const statusElement = document.getElementById('status-text');
+        let currentIndex = 0;
+
+        setInterval(() => {
+            // Fade out
+            statusElement.style.opacity = '0';
+            
+            setTimeout(() => {
+                currentIndex = (currentIndex + 1) % statuses.length;
+                statusElement.innerText = statuses[currentIndex];
+                
+                // If it's the final state, maybe change color or stop
+                if (currentIndex === 2) {
+                    statusElement.classList.add('text-secondary-fixed-dim');
+                    // In a real app, this would trigger a redirect or UI state change
+                } else {
+                    statusElement.classList.remove('text-secondary-fixed-dim');
+                }
+                
+                // Fade in
+                statusElement.style.opacity = '1';
+            }, 500); // Wait for fade out transition (matching Tailwind duration-500)
+            
+        }, 3000); // Change text every 3 seconds
+    </script>
+</body></html>

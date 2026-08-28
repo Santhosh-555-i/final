@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Photographer Dashboard - EventSnap</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;family=Inter:wght@400;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary": "#7bd0ff",
+                      "surface-container-low": "#131b2e",
+                      "on-error-container": "#ffdad6",
+                      "on-tertiary-container": "#560038",
+                      "on-tertiary-fixed": "#3d0026",
+                      "error": "#ffb4ab",
+                      "on-primary": "#1000a9",
+                      "surface-bright": "#31394d",
+                      "tertiary-fixed": "#ffd8e7",
+                      "inverse-on-surface": "#283044",
+                      "outline-variant": "#464554",
+                      "error-container": "#93000a",
+                      "secondary-fixed": "#c4e7ff",
+                      "on-secondary-container": "#00374d",
+                      "secondary-fixed-dim": "#7bd0ff",
+                      "on-secondary": "#00354a",
+                      "on-error": "#690005",
+                      "surface-dim": "#0b1326",
+                      "primary-fixed": "#e1e0ff",
+                      "on-primary-container": "#0d0096",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "surface-container-highest": "#2d3449",
+                      "secondary-container": "#00a6e0",
+                      "background": "#0b1326",
+                      "on-secondary-fixed": "#001e2c",
+                      "surface": "#0b1326",
+                      "tertiary-fixed-dim": "#ffafd3",
+                      "on-tertiary-fixed-variant": "#85145a",
+                      "on-surface-variant": "#c7c4d7",
+                      "on-surface": "#dae2fd",
+                      "surface-tint": "#c0c1ff",
+                      "on-primary-fixed": "#07006c",
+                      "primary-container": "#8083ff",
+                      "tertiary-container": "#e364a7",
+                      "on-tertiary": "#620040",
+                      "surface-variant": "#2d3449",
+                      "primary": "#c0c1ff",
+                      "on-background": "#dae2fd",
+                      "tertiary": "#ffafd3",
+                      "surface-container": "#171f33",
+                      "inverse-primary": "#494bd6",
+                      "on-secondary-fixed-variant": "#004c69",
+                      "surface-container-high": "#222a3d",
+                      "surface-container-lowest": "#060e20",
+                      "outline": "#908fa0",
+                      "inverse-surface": "#dae2fd"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "margin-mobile": "16px",
+                      "xs": "8px",
+                      "md": "24px",
+                      "lg": "40px",
+                      "margin-desktop": "48px",
+                      "gutter": "24px",
+                      "base": "4px",
+                      "xl": "64px",
+                      "sm": "16px"
+              },
+              "fontFamily": {
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "display-lg-mobile": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-sm": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "display-lg": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "headline-md": [
+                              "Plus Jakarta Sans"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-caps": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg-mobile": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-sm": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+        }
+        
+        .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .drop-zone {
+            border: 2px dashed theme('colors.primary-container');
+            transition: all 0.3s ease;
+        }
+        .drop-zone.dragover {
+            background-color: rgba(128, 131, 255, 0.1);
+            border-color: theme('colors.primary');
+        }
+
+        /* Custom Scrollbar for dark theme */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: theme('colors.surface'); 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: theme('colors.surface-variant'); 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: theme('colors.outline'); 
+        }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden antialiased">
+<!-- Navigation Drawer (Desktop) -->
+<nav class="hidden md:flex flex-col h-full w-[280px] bg-surface-container-low dark:bg-surface-dim border-r border-white/5 shadow-xl py-md z-40 relative flex-shrink-0">
+<!-- Header Profile -->
+<div class="px-md mb-8 flex items-center space-x-3">
+<div class="w-10 h-10 rounded-full overflow-hidden border border-white/10 shrink-0">
+<img alt="Attendee avatar" class="w-full h-full object-cover" data-alt="A professional headshot of a photographer in a dark studio setting. The lighting is moody with subtle blue and indigo accents reflecting the high-tech minimalist UI aesthetic. They are wearing a dark modern jacket." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA5rPQCE7fa3gBRZnrlXEb9cslfIROQjnBsn5heVvLMlRwDCHLFq3kx04Oj1zXxibzTR8DBTrCGQJgAqWo1Rq2rVPshoGA6_0vp7Sof-xKZp74bUVy9XYjV-bUYP1JTPrlicR_iirtf6Kxeci8kkiCYPbX7MlXQ8EougZYDI0n2izo37tLFUNcLVnZPAQrBSL4zPpeT-6M7l2fzxmgp4uyYDPfzNH6oy-RHvi6qtx3JrzLoEmY-XOnu"/>
+</div>
+<div class="flex flex-col overflow-hidden">
+<span class="font-headline-sm text-headline-sm text-primary truncate">Alex Rivera</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant truncate">Verified Attendee</span>
+</div>
+</div>
+<!-- Privacy Indicator -->
+<div class="px-md mb-6">
+<div class="flex items-center space-x-2 bg-secondary-container/10 border border-secondary-container/20 rounded-lg p-2">
+<span class="material-symbols-outlined text-secondary text-sm" style="font-variation-settings: 'FILL' 1;">lock</span>
+<span class="font-label-caps text-label-caps text-secondary">End-to-End Encrypted</span>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 overflow-y-auto space-y-1 px-2">
+<a class="flex items-center px-4 py-3 rounded-lg mx-2 bg-primary-container text-on-primary-container group active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined mr-3">upload_file</span>
+<span class="font-body-md text-body-md">Dashboard</span>
+</a>
+<a class="flex items-center px-4 py-3 rounded-lg mx-2 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all group active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined mr-3">photo_library</span>
+<span class="font-body-md text-body-md">My Gallery</span>
+</a>
+<a class="flex items-center px-4 py-3 rounded-lg mx-2 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all group active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined mr-3">face</span>
+<span class="font-body-md text-body-md">Face Sync</span>
+</a>
+<a class="flex items-center px-4 py-3 rounded-lg mx-2 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all group active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined mr-3">event</span>
+<span class="font-body-md text-body-md">Event Access</span>
+</a>
+<a class="flex items-center px-4 py-3 rounded-lg mx-2 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all group active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined mr-3">security</span>
+<span class="font-body-md text-body-md">Privacy Vault</span>
+</a>
+</div>
+<!-- Bottom Settings -->
+<div class="px-2 mt-auto pt-4 border-t border-white/5">
+<a class="flex items-center px-4 py-3 rounded-lg mx-2 text-on-surface-variant hover:text-on-surface hover:bg-white/5 transition-all group active:translate-x-1 transition-transform" href="#">
+<span class="material-symbols-outlined mr-3">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
+<!-- TopAppBar (Mobile Only - Hidden on Desktop per instructions to use Sidebar) -->
+<header class="md:hidden flex justify-between items-center px-margin-mobile h-16 w-full z-50 bg-surface/80 dark:bg-surface-dim/80 backdrop-blur-xl border-b border-white/10 shadow-sm fixed top-0">
+<div class="flex items-center">
+<span class="material-symbols-outlined text-primary mr-2" style="font-variation-settings: 'FILL' 1;">camera_indoor</span>
+<span class="font-headline-md text-headline-md font-bold text-primary tracking-tight">EventSnap</span>
+</div>
+<div class="w-8 h-8 rounded-full overflow-hidden border border-white/10">
+<img alt="Attendee profile photo" class="w-full h-full object-cover" data-alt="A small circular avatar of a photographer in dark mode aesthetic" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDbgPZUVlbQWVNU8P6GzTZJ8P7zQKImumj3yB3TyvallMPzKCvSX6vfpCUB6OcO2bu2mpYHUY4jJtGtL_9l1Z3Q0ZLpn7AvQK-mwZV2c1o2Lv_qTupyRaN9h4i7hAUag2-68RRiQFbd4wFj8GLgpo3t9gW2P2USCzXDDbpmjGkp3c-2m0mRDU_KEkMBLtC7gq3BDZn8p9TTwUku0LuORAGTaz9xQYC0ejAeNUFMbY_ezDV_5_ck5tdf"/>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<div class="flex-1 overflow-y-auto p-4 md:p-margin-desktop mt-16 md:mt-0 pb-24 md:pb-margin-desktop">
+<div class="max-w-[1440px] mx-auto space-y-6">
+<!-- Page Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-4">
+<div>
+<h1 class="font-display-lg-mobile md:font-display-lg text-display-lg-mobile md:text-display-lg text-on-surface mb-2">Upload Workspace</h1>
+<p class="font-body-md text-body-md text-on-surface-variant">Drag and drop RAW or high-res JPEG files for immediate vector processing.</p>
+</div>
+<div class="flex gap-3">
+<button class="px-4 py-2 rounded-lg bg-surface-container border border-white/10 text-on-surface font-label-caps text-label-caps hover:bg-white/5 transition-colors flex items-center">
+<span class="material-symbols-outlined mr-2 text-[18px]">sync</span>
+                            Sync History
+                        </button>
+<button class="px-4 py-2 rounded-lg bg-primary text-on-primary font-label-caps text-label-caps hover:bg-primary-fixed transition-colors flex items-center shadow-[0_0_20px_rgba(192,193,255,0.2)]">
+<span class="material-symbols-outlined mr-2 text-[18px]">add_a_photo</span>
+                            New Album
+                        </button>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- Main Drop Zone (Spans 8 columns) -->
+<div class="md:col-span-8 glass-panel rounded-xl p-6 flex flex-col relative overflow-hidden group">
+<div class="flex justify-between items-center mb-4 z-10">
+<h2 class="font-headline-sm text-headline-sm text-on-surface flex items-center">
+<span class="material-symbols-outlined mr-2 text-primary">cloud_upload</span>
+                                Batch Ingestion
+                            </h2>
+<span class="px-2 py-1 rounded bg-secondary-container/20 text-secondary font-label-caps text-label-caps border border-secondary/20">RAW / JPEG</span>
+</div>
+<div class="drop-zone flex-1 rounded-lg flex flex-col items-center justify-center p-10 min-h-[300px] bg-surface-container-low/50 relative z-10 cursor-pointer" id="drop-area">
+<div class="w-16 h-16 rounded-full bg-primary-container/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+<span class="material-symbols-outlined text-3xl text-primary">upload</span>
+</div>
+<p class="font-headline-sm text-headline-sm text-on-surface mb-2 text-center">Drag &amp; Drop files here</p>
+<p class="font-body-sm text-body-sm text-on-surface-variant text-center mb-6">or click to browse from your device</p>
+<input accept="image/jpeg, image/png, image/raw" class="hidden" id="fileElem" multiple="" type="file"/>
+<div class="flex gap-4 mt-2">
+<div class="flex items-center gap-1 text-on-surface-variant/60 font-label-caps text-label-caps">
+<span class="material-symbols-outlined text-[16px]">bolt</span> Fast Processing
+                                </div>
+<div class="flex items-center gap-1 text-on-surface-variant/60 font-label-caps text-label-caps">
+<span class="material-symbols-outlined text-[16px]">lock</span> Encrypted Transfer
+                                </div>
+</div>
+</div>
+</div>
+<!-- Stats & Queue (Spans 4 columns) -->
+<div class="md:col-span-4 flex flex-col gap-6">
+<!-- Mini Stats Row -->
+<div class="grid grid-cols-2 gap-4">
+<div class="glass-panel rounded-xl p-4 flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">Session Uploads</span>
+<span class="font-display-lg-mobile text-display-lg-mobile text-primary">243</span>
+</div>
+<div class="glass-panel rounded-xl p-4 flex flex-col">
+<span class="font-label-caps text-label-caps text-on-surface-variant mb-1">Processing Queue</span>
+<span class="font-display-lg-mobile text-display-lg-mobile text-secondary">12</span>
+</div>
+</div>
+<!-- Active Queue List -->
+<div class="glass-panel rounded-xl p-6 flex-1 flex flex-col">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline-sm text-headline-sm text-on-surface">Live Queue</h3>
+<button class="text-primary hover:text-primary-fixed transition-colors">
+<span class="material-symbols-outlined">more_horiz</span>
+</button>
+</div>
+<div class="space-y-4 flex-1 overflow-y-auto pr-2">
+<!-- Queue Item 1 -->
+<div class="bg-surface-container-low rounded-lg p-3 border border-white/5">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-secondary text-[20px]">image</span>
+<span class="font-body-sm text-body-sm text-on-surface truncate w-32">IMG_8942_RAW.cr3</span>
+</div>
+<span class="font-label-caps text-label-caps text-secondary">78%</span>
+</div>
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-secondary h-1.5 rounded-full" style="width: 78%"></div>
+</div>
+<div class="mt-2 flex justify-between text-[10px] text-on-surface-variant">
+<span>Vector Indexing...</span>
+<span>12 MB/s</span>
+</div>
+</div>
+<!-- Queue Item 2 -->
+<div class="bg-surface-container-low rounded-lg p-3 border border-white/5">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-[20px]">image</span>
+<span class="font-body-sm text-body-sm text-on-surface truncate w-32">IMG_8943_RAW.cr3</span>
+</div>
+<span class="font-label-caps text-label-caps text-primary">32%</span>
+</div>
+<div class="w-full bg-surface-container-highest rounded-full h-1.5 overflow-hidden">
+<div class="bg-primary h-1.5 rounded-full" style="width: 32%"></div>
+</div>
+<div class="mt-2 flex justify-between text-[10px] text-on-surface-variant">
+<span>Uploading...</span>
+<span>10 MB/s</span>
+</div>
+</div>
+<!-- Queue Item 3 (Completed) -->
+<div class="bg-surface-container-low rounded-lg p-3 border border-white/5 opacity-60">
+<div class="flex justify-between items-start mb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-green-400 text-[20px]">check_circle</span>
+<span class="font-body-sm text-body-sm text-on-surface line-through truncate w-32">IMG_8941_RAW.cr3</span>
+</div>
+<span class="font-label-caps text-label-caps text-green-400">Done</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- System Status Footer -->
+<div class="flex items-center justify-between text-on-surface-variant font-label-caps text-label-caps mt-8 border-t border-white/5 pt-4">
+<div class="flex items-center gap-4">
+<span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> Server: Online (US-East)</span>
+<span class="hidden md:inline">Storage: 450GB / 1TB Used</span>
+</div>
+<div>v2.4.1 (Pro Tier)</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation Bar (Mobile Only - Suppressed on Desktop) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 pb-safe bg-surface-container/90 dark:bg-surface-container-lowest/90 backdrop-blur-lg border-t border-white/10 shadow-[0_-4px_20px_rgba(99,102,241,0.05)] rounded-t-xl">
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-colors active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined mb-1">photo_library</span>
+<span class="font-label-caps text-label-caps">Photos</span>
+</a>
+<!-- Assuming Dashboard/Upload isn't explicitly in Bottom Nav JSON, map to nearest generic or keep active state visually clear -->
+<a class="flex flex-col items-center justify-center text-primary font-bold bg-secondary-container/20 rounded-xl px-3 py-1 active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined mb-1">upload</span>
+<span class="font-label-caps text-label-caps">Upload</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-colors active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined mb-1">event</span>
+<span class="font-label-caps text-label-caps">Events</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:text-primary transition-colors active:scale-90 duration-200" href="#">
+<span class="material-symbols-outlined mb-1">security</span>
+<span class="font-label-caps text-label-caps">Privacy</span>
+</a>
+</nav>
+<script>
+        // Simple Drag and Drop visual feedback script
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('fileElem');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropArea.classList.add('dragover');
+        }
+
+        function unhighlight(e) {
+            dropArea.classList.remove('dragover');
+        }
+
+        dropArea.addEventListener('drop', handleDrop, false);
+        dropArea.addEventListener('click', () => fileInput.click());
+
+        function handleDrop(e) {
+            let dt = e.dataTransfer;
+            let files = dt.files;
+            // In a real app, handle file upload here
+            console.log("Files dropped:", files.length);
+        }
+    </script>
+</body></html>
