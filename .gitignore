@@ -48,3 +48,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+*.exe
+keep_tunnel_alive.ps1
+
