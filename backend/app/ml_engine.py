@@ -292,8 +292,8 @@ class FaceMLEngine:
         return results
 
     def extract_single_selfie_embedding(self, image_bytes: bytes) -> Optional[List[float]]:
-        """Extracts 512-d embedding for the attendee's selfie (strictly requires a detected face)."""
-        faces = self.extract_faces_and_embeddings(image_bytes, allow_fallback=False)
+        """Extracts 512-d embedding for the attendee's selfie."""
+        faces = self.extract_faces_and_embeddings(image_bytes, allow_fallback=True)
         if not faces:
             return None
         # Pick the largest face in frame

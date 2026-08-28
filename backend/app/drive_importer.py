@@ -288,16 +288,14 @@ class GoogleDriveImporter:
                     url=f"https://drive.google.com/drive/folders/{folder_id}", 
                     output=folder_out_dir, 
                     quiet=True, 
-                    use_cookies=True,
-                    remaining_ok=True
+                    use_cookies=True
                 )
             except Exception:
                 gdown.download_folder(
                     id=folder_id, 
                     output=folder_out_dir, 
                     quiet=True, 
-                    use_cookies=True,
-                    remaining_ok=True
+                    use_cookies=True
                 )
             
             for root, _, files in os.walk(folder_out_dir):
