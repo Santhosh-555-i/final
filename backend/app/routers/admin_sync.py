@@ -33,29 +33,24 @@ def sync_google_drive(req: SyncDriveRequest, background_tasks: BackgroundTasks):
     and enqueues face detection and 512-d vector indexing in the background.
     Returns a tracking task_id for real-time progress monitoring.
     """
-    target_event_id = req.event_id
-    if not target_event_id and req.event_code:
-        ev = db_service.get_event_by_code(req.event_code)
-        if ev:
-            target_event_id = ev["id"]
+    target_event = None
+    if req.event_id:
+        target_event = db_service.get_event_by_id(req.event_id) or db_service.get_event_by_code(req.event_id)
+    if not target_event and req.event_code:
+        target_event = db_service.get_event_by_code(req.event_code) or db_service.get_event_by_id(req.event_code)
 
-    if not target_event_id:
-        # Check if default event exists or create one
+    if not target_event:
         events = db_service.get_all_events()
         if events:
-            target_event_id = events[0]["id"]
+            target_event = events[0]
         else:
-            created = db_service.create_event(
+            target_event = db_service.create_event(
                 title="Event Gallery",
                 event_code=req.event_code or "EVENT2026",
                 drive_link=req.drive_link
             )
-            target_event_id = created["id"]
 
-    # Verify event exists
-    event = db_service.get_event_by_id(target_event_id)
-    if not event:
-        raise HTTPException(status_code=404, detail="Target event not found.")
+    target_event_id = target_event["id"]
 
     # Create tracking task
     task_id = task_tracker.create_task(target_event_id)
