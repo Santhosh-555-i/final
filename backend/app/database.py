@@ -532,9 +532,7 @@ class DatabaseService:
                 emb = face.get("embedding")
                 if not emb or len(emb) != 512:
                     continue
-                emb_id = str(uuid.uuid4())
                 row = {
-                    "id": emb_id,
                     "photo_id": photo_id,
                     "event_id": actual_event_id,
                     "embedding": emb,
