@@ -115,7 +115,9 @@ def index_faces(req: IndexFacesRequest):
         "faces_detected": res.get("faces_detected", 0),
         "embeddings_created": res.get("embeddings_created", 0),
         "photos_skipped": res.get("photos_skipped", 0),
-        "message": f"Successfully processed {res.get('photos_processed', 0)} photos and created {res.get('embeddings_created', 0)} face embeddings."
+        "errors": res.get("errors", []),
+        "diagnostics": res.get("diagnostics", []),
+        "message": f"Processed {res.get('photos_processed', 0)} photos: detected {res.get('faces_detected', 0)} face(s) and stored {res.get('embeddings_created', 0)} embedding(s)."
     }
 
 @router.post("/backfill-embeddings")

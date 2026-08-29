@@ -662,34 +662,82 @@ class DatabaseService:
         total_embeddings_stored = 0
         skipped_count = 0
         errors = []
+        diagnostics_log = []
 
         for idx, p in enumerate(photos_to_process, 1):
             pid = p["id"]
             pevt = p["event_id"]
             pimg = p["image_url"]
+            diag = {
+                "photo_id": pid,
+                "image_url": pimg,
+                "download_success": False,
+                "download_bytes": 0,
+                "pil_decode_success": False,
+                "image_size": None,
+                "channel_mode": None,
+                "opencv_shape": None,
+                "faces_detected": 0,
+                "embeddings_stored": 0,
+                "error": None
+            }
             try:
+                # 1. Storage Download
                 img_bytes = storage_service.get_photo_bytes(pimg)
                 if not img_bytes or len(img_bytes) < 100:
                     skipped_count += 1
-                    print(f"[Face Backfill] Skipped photo {pid} ({idx}/{total_scanned}): could not load image bytes.")
+                    diag["error"] = f"Failed to load image bytes (byte count: {len(img_bytes) if img_bytes else 0})"
+                    print(f"[Photo Diagnostic {idx}/{total_scanned}] FAILED download | ID={pid} | URL={pimg}")
+                    diagnostics_log.append(diag)
                     continue
 
+                diag["download_success"] = True
+                diag["download_bytes"] = len(img_bytes)
+
+                # 2. PIL & OpenCV Decode Diagnostics
+                try:
+                    pil_img = Image.open(io.BytesIO(img_bytes))
+                    diag["pil_decode_success"] = True
+                    diag["image_size"] = f"{pil_img.width}x{pil_img.height}"
+                    diag["channel_mode"] = pil_img.mode
+                except Exception as p_err:
+                    diag["pil_decode_error"] = str(p_err)
+
+                try:
+                    cv_img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+                    if cv_img is not None:
+                        diag["opencv_shape"] = f"{cv_img.shape[1]}x{cv_img.shape[0]}x{cv_img.shape[2]}"
+                except Exception as c_err:
+                    diag["opencv_decode_error"] = str(c_err)
+
+                # 3. Face Detection & Embedding Extraction
                 faces = ml_engine.extract_faces_and_embeddings(img_bytes, allow_fallback=True)
+                diag["faces_detected"] = len(faces)
                 total_faces_detected += len(faces)
 
+                # 4. Insert into database
                 stored = self.insert_face_embeddings_for_photo(
                     photo_id=pid,
                     event_id=pevt,
                     faces=faces,
                     image_url=pimg
                 )
+                diag["embeddings_stored"] = stored
                 total_embeddings_stored += stored
                 processed_count += 1
-                print(f"[Face Backfill] ({idx}/{total_scanned}) Photo {pid}: {len(faces)} face(s) detected, {stored} embedding(s) stored.")
+
+                print(
+                    f"[Photo Diagnostic {idx}/{total_scanned}] ID={pid} | URL={pimg} | "
+                    f"Bytes={len(img_bytes)} | Dim={diag['image_size']} | Mode={diag['channel_mode']} | "
+                    f"Faces={len(faces)} | Stored={stored}"
+                )
 
             except Exception as proc_err:
+                diag["error"] = str(proc_err)
                 errors.append(f"Photo {pid}: {proc_err}")
-                print(f"[Face Backfill Error] Failed processing photo {pid}: {proc_err}")
+                print(f"[Photo Diagnostic Error {idx}/{total_scanned}] Photo {pid}: {proc_err}")
+
+            diagnostics_log.append(diag)
 
         summary = {
             "success": True,
@@ -698,7 +746,8 @@ class DatabaseService:
             "faces_detected": total_faces_detected,
             "embeddings_created": total_embeddings_stored,
             "photos_skipped": skipped_count,
-            "errors": errors
+            "errors": errors,
+            "diagnostics": diagnostics_log
         }
         print(f"[Face Backfill Completed] Summary: {summary}")
         return summary

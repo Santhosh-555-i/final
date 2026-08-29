@@ -77,11 +77,11 @@ class FaceMLEngine:
                         model_path,
                         "",
                         (320, 320),
-                        score_threshold=0.50,
+                        score_threshold=0.30,
                         nms_threshold=0.30,
-                        top_k=200
+                        top_k=500
                     )
-                    print(f"[ML Engine] Loaded YuNet Deep Face Detector successfully.")
+                    print(f"[ML Engine] Loaded YuNet Deep Face Detector successfully (model: {model_path}, size: {os.path.getsize(model_path)} bytes).")
         except Exception as e:
             print(f"[ML Engine Notice] YuNet detector initialization notice: {e}")
 
@@ -89,7 +89,7 @@ class FaceMLEngine:
     # MEMORY-SAFE PREPROCESSING & SCALING
     # =========================================================================
 
-    def _downscale_if_large(self, img_pil: Image.Image, max_dim: int = 960) -> Tuple[Image.Image, float]:
+    def _downscale_if_large(self, img_pil: Image.Image, max_dim: int = 1280) -> Tuple[Image.Image, float]:
         """Pre-scales high-res photos to prevent buffer bloat while maintaining aspect ratio."""
         w, h = img_pil.size
         if max(w, h) <= max_dim:
@@ -161,22 +161,25 @@ class FaceMLEngine:
 
         if self.yunet_detector is not None:
             try:
-                img_cv = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+                img_rgb = np.array(img_pil.convert('RGB'))
+                img_cv = np.ascontiguousarray(cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR), dtype=np.uint8)
                 with self._detector_lock:
                     self.yunet_detector.setInputSize((img_w, img_h))
                     _, detections = self.yunet_detector.detect(img_cv)
 
+                raw_count = len(detections) if detections is not None else 0
                 if detections is not None:
                     for d in detections:
                         x, y, w, h = int(d[0]), int(d[1]), int(d[2]), int(d[3])
                         conf = float(d[-1])
-                        if w >= 32 and h >= 32 and conf >= 0.50:
+                        if w >= 20 and h >= 20 and conf >= 0.30:
                             results.append({
                                 'box': (x, y, w, h),
                                 'raw_data': d,
                                 'conf': conf
                             })
-                del img_cv
+                print(f"[ML Engine Detection] Image {img_w}x{img_h}: YuNet detector active, raw detections={raw_count}, accepted faces={len(results)}")
+                del img_cv, img_rgb
             except Exception as e:
                 print(f"[ML Engine Notice] YuNet detection error: {e}")
 
@@ -187,16 +190,17 @@ class FaceMLEngine:
                 face_cascade = cv2.CascadeClassifier(cascade_path)
                 if not face_cascade.empty():
                     gray = np.array(img_pil.convert('L'))
-                    cb = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(30, 30))
+                    cb = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=3, minSize=(24, 24))
                     for (x, y, w, h) in cb:
                         results.append({
                             'box': (int(x), int(y), int(w), int(h)),
                             'raw_data': None,
                             'conf': 0.75
                         })
+                    print(f"[ML Engine Detection] Haar Cascade detected {len(results)} face(s)")
                     del gray
-            except Exception:
-                pass
+            except Exception as haar_err:
+                print(f"[ML Engine Notice] Haar Cascade error: {haar_err}")
 
         return results
 
@@ -209,7 +213,16 @@ class FaceMLEngine:
         Processes an image, detects faces, and extracts 512-d embeddings sequentially.
         Guarantees low memory consumption by explicitly reclaiming RAM.
         """
-        orig_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        orig_pil = None
+        try:
+            orig_pil = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+        except Exception as pil_err:
+            img_cv_raw = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+            if img_cv_raw is not None:
+                orig_pil = Image.fromarray(cv2.cvtColor(img_cv_raw, cv2.COLOR_BGR2RGB))
+            else:
+                raise RuntimeError(f"Could not decode image bytes (PIL error: {pil_err})")
+
         orig_w, orig_h = orig_pil.size
 
         # Downscale source image for detection & crop slicing (conserves RAM)
