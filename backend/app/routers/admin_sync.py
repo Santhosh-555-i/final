@@ -89,45 +89,46 @@ def sync_google_drive(req: SyncDriveRequest, background_tasks: BackgroundTasks):
 @router.post("/index-faces")
 def index_faces(req: IndexFacesRequest):
     """
-    Runs face detection, extracts 512-d ArcFace/FaceNet embeddings for all photos in an event,
-    and writes the vector embeddings to the database.
+    Runs face detection, extracts 512-d FaceNet embeddings for all photos in an event,
+    and writes the vector embeddings to public.face_embeddings.
     """
     event = db_service.get_event_by_id(req.event_id)
     if not event:
-        raise HTTPException(status_code=404, detail="Event not found.")
+        ev_code = db_service.get_event_by_code(req.event_id)
+        if ev_code:
+            event = ev_code
+        else:
+            raise HTTPException(status_code=404, detail="Event not found.")
 
-    photos = db_service.get_event_photos(req.event_id, limit=500)
-    indexed_count = 0
-    total_faces = 0
+    res = db_service.backfill_missing_embeddings(event_id=event["id"])
 
-    for p in photos:
-        try:
-            rel_path = p["image_url"].replace("/static/", "")
-            import os
-            full_path = os.path.join(settings.LOCAL_STORAGE_DIR, rel_path)
-            if os.path.exists(full_path):
-                with open(full_path, "rb") as f:
-                    img_bytes = f.read()
-                faces = ml_engine.extract_faces_and_embeddings(img_bytes)
-                if faces:
-                    # Clear previous embeddings if force_reindex
-                    # (handled by db insertion)
-                    indexed_count += 1
-                    total_faces += len(faces)
-        except Exception as e:
-            print(f"[Index Faces Warning] {e}")
-
-    db_service.log_audit_action(req.event_id, "ADMIN_INDEX_FACES", {
-        "photos_processed": indexed_count,
-        "faces_detected": total_faces
+    db_service.log_audit_action(event["id"], "ADMIN_INDEX_FACES", {
+        "photos_processed": res.get("photos_processed", 0),
+        "faces_detected": res.get("faces_detected", 0)
     })
 
     return {
         "success": True,
-        "event_id": req.event_id,
-        "photos_processed": len(photos),
-        "faces_detected": total_faces,
-        "message": f"Successfully indexed {total_faces} facial embeddings across {len(photos)} event photos."
+        "event_id": event["id"],
+        "total_scanned": res.get("total_scanned", 0),
+        "photos_processed": res.get("photos_processed", 0),
+        "faces_detected": res.get("faces_detected", 0),
+        "embeddings_created": res.get("embeddings_created", 0),
+        "photos_skipped": res.get("photos_skipped", 0),
+        "message": f"Successfully processed {res.get('photos_processed', 0)} photos and created {res.get('embeddings_created', 0)} face embeddings."
+    }
+
+@router.post("/backfill-embeddings")
+def backfill_all_embeddings(event_id: Optional[str] = Query(None)):
+    """
+    Scans all photos across all events (or single event) with 0 embeddings
+    and generates 512-d FaceNet embeddings in the database.
+    """
+    res = db_service.backfill_missing_embeddings(event_id=event_id)
+    return {
+        "success": True,
+        "summary": res,
+        "message": f"Backfill complete: {res.get('embeddings_created', 0)} embeddings created across {res.get('photos_processed', 0)} photos."
     }
 
 @router.get("/sync-status/{task_id}")

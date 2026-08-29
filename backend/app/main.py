@@ -85,6 +85,26 @@ app.include_router(search_face.router, prefix=settings.API_PREFIX)
 app.include_router(clusters.router, prefix=settings.API_PREFIX)
 app.include_router(sharing.router, prefix=settings.API_PREFIX)
 
+@app.on_event("startup")
+async def on_startup_auto_backfill():
+    """
+    Spawns background task on startup to scan photos with missing embeddings
+    and automatically index them without blocking the server.
+    """
+    import threading
+    import time
+    from app.database import db_service
+
+    def _run_backfill():
+        time.sleep(3)  # Wait for server to bind ports
+        try:
+            print("[Startup] Triggering automatic face embedding verification & backfill...")
+            db_service.backfill_missing_embeddings()
+        except Exception as e:
+            print(f"[Startup Backfill Notice] {e}")
+
+    threading.Thread(target=_run_backfill, daemon=True, name="startup_face_backfill").start()
+
 @app.get("/")
 def root():
     return {
@@ -94,6 +114,7 @@ def root():
         "endpoints": {
             "admin_sync_drive": "/api/admin/sync-drive",
             "admin_index_faces": "/api/admin/index-faces",
+            "admin_backfill_embeddings": "/api/admin/backfill-embeddings",
             "search_face": "/api/search-face",
             "events": "/api/events",
             "photos": "/api/photos/upload-batch"

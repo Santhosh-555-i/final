@@ -6,7 +6,7 @@ import hashlib
 import urllib.parse
 import numpy as np
 from datetime import datetime, timezone
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from passlib.context import CryptContext
 from app.config import settings
 
@@ -512,6 +512,199 @@ class DatabaseService:
             conn.close()
             return [self._format_photo_record(dict(r)) for r in rows]
 
+    def insert_face_embeddings_for_photo(
+        self, photo_id: str, event_id: str, faces: List[Dict], image_url: str = ""
+    ) -> int:
+        """
+        Inserts 512-d facial embeddings for a photo with schema resilience.
+        Supports both modern schema (photo_id, event_id, embedding, bounding_box)
+        and legacy schema (image_name, image_url, embedding).
+        """
+        if not faces:
+            return 0
+
+        actual_event_id = self.resolve_event_id(event_id) or event_id
+        clean_img_name = os.path.basename(image_url) if image_url else f"photo_{photo_id}.jpg"
+
+        if settings.DB_MODE == "supabase":
+            embedding_rows = []
+            for face in faces:
+                emb = face.get("embedding")
+                if not emb or len(emb) != 512:
+                    continue
+                emb_id = str(uuid.uuid4())
+                row = {
+                    "id": emb_id,
+                    "photo_id": photo_id,
+                    "event_id": actual_event_id,
+                    "embedding": emb,
+                    "bounding_box": face.get("bounding_box")
+                }
+                embedding_rows.append(row)
+
+            if not embedding_rows:
+                return 0
+
+            # Attempt 1: Full modern schema (id, photo_id, event_id, embedding, bounding_box)
+            try:
+                self.supabase.table("face_embeddings").insert(embedding_rows).execute()
+                print(f"[Face Indexing Pipeline] Inserted {len(embedding_rows)} face embedding(s) into Supabase for photo {photo_id}")
+                return len(embedding_rows)
+            except Exception as e1:
+                print(f"[Face Indexing Notice] Full schema insert attempt: {e1}. Retrying with adapted schema...")
+
+            # Attempt 2: Minimal modern schema (photo_id, event_id, embedding)
+            try:
+                minimal_rows = [
+                    {"photo_id": r["photo_id"], "event_id": r["event_id"], "embedding": r["embedding"]}
+                    for r in embedding_rows
+                ]
+                self.supabase.table("face_embeddings").insert(minimal_rows).execute()
+                print(f"[Face Indexing Pipeline] Inserted {len(minimal_rows)} face embedding(s) (minimal modern) for photo {photo_id}")
+                return len(minimal_rows)
+            except Exception as e2:
+                print(f"[Face Indexing Notice] Minimal modern schema insert attempt: {e2}")
+
+            # Attempt 3: Legacy schema with image_name / image_url
+            try:
+                legacy_rows = [
+                    {
+                        "image_name": clean_img_name,
+                        "image_url": image_url or clean_img_name,
+                        "embedding": r["embedding"]
+                    }
+                    for r in embedding_rows
+                ]
+                self.supabase.table("face_embeddings").insert(legacy_rows).execute()
+                print(f"[Face Indexing Pipeline] Inserted {len(legacy_rows)} face embedding(s) (legacy format) for photo {photo_id}")
+                return len(legacy_rows)
+            except Exception as e3:
+                print(f"[Face Indexing Error] All Supabase face_embeddings insert attempts failed: {e3}")
+                return 0
+        else:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            count = 0
+            for face in faces:
+                emb = face.get("embedding")
+                if not emb or len(emb) != 512:
+                    continue
+                emb_id = str(uuid.uuid4())
+                cursor.execute(
+                    "INSERT INTO face_embeddings (id, photo_id, event_id, embedding_json, bounding_box_json) VALUES (?, ?, ?, ?, ?)",
+                    (emb_id, photo_id, actual_event_id, json.dumps(emb), json.dumps(face.get("bounding_box")))
+                )
+                count += 1
+            conn.commit()
+            conn.close()
+            self.invalidate_event_cache(actual_event_id)
+            return count
+
+    def backfill_missing_embeddings(self, event_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Scans all photos (or photos in a specific event), detects photos that lack
+        face embeddings in public.face_embeddings, downloads their image bytes,
+        extracts 512-d FaceNet embeddings, and stores them in public.face_embeddings.
+        """
+        from app.storage import storage_service
+        from app.ml_engine import ml_engine
+
+        print(f"[Face Backfill] Starting face embedding audit and backfill (event_id={event_id})...")
+        actual_event_id = self.resolve_event_id(event_id) if event_id else None
+
+        photos_to_process = []
+        if settings.DB_MODE == "supabase":
+            try:
+                # 1. Fetch all photos
+                query = self.supabase.table("photos").select("id, event_id, image_url, thumbnail_url")
+                if actual_event_id:
+                    query = query.eq("event_id", actual_event_id)
+                p_res = query.order("created_at", desc=True).limit(500).execute()
+                all_photos = p_res.data or []
+
+                # 2. Fetch existing photo_ids from face_embeddings
+                fe_query = self.supabase.table("face_embeddings").select("photo_id")
+                if actual_event_id:
+                    fe_query = fe_query.eq("event_id", actual_event_id)
+                fe_res = fe_query.execute()
+                existing_pids = {r["photo_id"] for r in (fe_res.data or []) if r.get("photo_id")}
+
+                # Filter photos that need embeddings
+                for p in all_photos:
+                    if p["id"] not in existing_pids:
+                        photos_to_process.append(p)
+            except Exception as e:
+                print(f"[Face Backfill Error] Supabase photo scan failed: {e}")
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            if actual_event_id:
+                cursor.execute("""
+                    SELECT p.id, p.event_id, p.image_url, p.thumbnail_url
+                    FROM photos p
+                    LEFT JOIN face_embeddings fe ON p.id = fe.photo_id
+                    WHERE p.event_id = ? AND fe.id IS NULL
+                """, (actual_event_id,))
+            else:
+                cursor.execute("""
+                    SELECT p.id, p.event_id, p.image_url, p.thumbnail_url
+                    FROM photos p
+                    LEFT JOIN face_embeddings fe ON p.id = fe.photo_id
+                    WHERE fe.id IS NULL
+                """)
+            photos_to_process = [dict(r) for r in cursor.fetchall()]
+            conn.close()
+
+        total_scanned = len(photos_to_process)
+        print(f"[Face Backfill] Found {total_scanned} photo(s) without face embeddings. Beginning processing...")
+
+        processed_count = 0
+        total_faces_detected = 0
+        total_embeddings_stored = 0
+        skipped_count = 0
+        errors = []
+
+        for idx, p in enumerate(photos_to_process, 1):
+            pid = p["id"]
+            pevt = p["event_id"]
+            pimg = p["image_url"]
+            try:
+                img_bytes = storage_service.get_photo_bytes(pimg)
+                if not img_bytes or len(img_bytes) < 100:
+                    skipped_count += 1
+                    print(f"[Face Backfill] Skipped photo {pid} ({idx}/{total_scanned}): could not load image bytes.")
+                    continue
+
+                faces = ml_engine.extract_faces_and_embeddings(img_bytes, allow_fallback=True)
+                total_faces_detected += len(faces)
+
+                stored = self.insert_face_embeddings_for_photo(
+                    photo_id=pid,
+                    event_id=pevt,
+                    faces=faces,
+                    image_url=pimg
+                )
+                total_embeddings_stored += stored
+                processed_count += 1
+                print(f"[Face Backfill] ({idx}/{total_scanned}) Photo {pid}: {len(faces)} face(s) detected, {stored} embedding(s) stored.")
+
+            except Exception as proc_err:
+                errors.append(f"Photo {pid}: {proc_err}")
+                print(f"[Face Backfill Error] Failed processing photo {pid}: {proc_err}")
+
+        summary = {
+            "success": True,
+            "total_scanned": total_scanned,
+            "photos_processed": processed_count,
+            "faces_detected": total_faces_detected,
+            "embeddings_created": total_embeddings_stored,
+            "photos_skipped": skipped_count,
+            "errors": errors
+        }
+        print(f"[Face Backfill Completed] Summary: {summary}")
+        return summary
+
     def insert_photo_and_embeddings(
         self, event_id: str, image_url: str, thumbnail_url: str, faces: List[Dict]
     ) -> Dict:
@@ -529,18 +722,13 @@ class DatabaseService:
                     "created_at": created_at
                 }).execute()
 
-                embedding_rows = []
-                for face in faces:
-                    emb_id = str(uuid.uuid4())
-                    embedding_rows.append({
-                        "id": emb_id,
-                        "photo_id": photo_id,
-                        "event_id": actual_event_id,
-                        "embedding": face["embedding"],
-                        "bounding_box": face["bounding_box"]
-                    })
-                if embedding_rows:
-                    self.supabase.table("face_embeddings").insert(embedding_rows).execute()
+                # Insert facial embeddings using multi-schema resilient pipeline
+                self.insert_face_embeddings_for_photo(
+                    photo_id=photo_id,
+                    event_id=actual_event_id,
+                    faces=faces,
+                    image_url=image_url
+                )
 
                 record = {
                     "id": photo_id,
@@ -561,10 +749,13 @@ class DatabaseService:
                 (photo_id, actual_event_id, image_url, thumbnail_url, created_at)
             )
             for face in faces:
+                emb = face.get("embedding")
+                if not emb or len(emb) != 512:
+                    continue
                 emb_id = str(uuid.uuid4())
                 cursor.execute(
                     "INSERT INTO face_embeddings (id, photo_id, event_id, embedding_json, bounding_box_json) VALUES (?, ?, ?, ?, ?)",
-                    (emb_id, photo_id, actual_event_id, json.dumps(face["embedding"]), json.dumps(face["bounding_box"]))
+                    (emb_id, photo_id, actual_event_id, json.dumps(emb), json.dumps(face.get("bounding_box")))
                 )
             conn.commit()
             conn.close()

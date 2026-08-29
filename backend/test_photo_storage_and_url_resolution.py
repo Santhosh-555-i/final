@@ -1,5 +1,7 @@
 import unittest
 import numpy as np
+import uuid
+import os
 from fastapi.testclient import TestClient
 from app.main import app
 from app.config import settings
@@ -41,8 +43,6 @@ class TestPhotoStorageAndUrlResolution(unittest.TestCase):
         self.assertIn("db_mode", data)
 
     def test_match_selfie_vector_pipeline(self):
-        # Create an event and photo with unique code and mock 512-d embedding
-        import uuid
         test_code = f"MATCH-{uuid.uuid4().hex[:8].upper()}"
         ev = db_service.create_event("Test Selfie Vector Match Event", test_code)
         mock_embedding = [0.1] * 512
@@ -67,9 +67,28 @@ class TestPhotoStorageAndUrlResolution(unittest.TestCase):
         self.assertIn("image_url", matches[0])
         self.assertIn("thumbnail_url", matches[0])
 
+    def test_backfill_missing_embeddings_engine(self):
+        test_code = f"BF-{uuid.uuid4().hex[:8].upper()}"
+        ev = db_service.create_event("Test Backfill Event", test_code)
+        
+        # Insert a photo without embeddings
+        photo = db_service.insert_photo_and_embeddings(
+            event_id=ev["id"],
+            image_url="/static/raw/photo_test_bf.jpg",
+            thumbnail_url="/static/thumbnails/thumb_test_bf.jpg",
+            faces=[]
+        )
+        self.assertEqual(photo["faces_detected"], 0)
+
+        # Run backfill endpoint
+        resp = self.client.post(f"/api/admin/backfill-embeddings?event_id={ev['id']}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["success"])
+        self.assertIn("summary", data)
+
     def test_fallback_static_or_file_stream(self):
         # Create a temporary dummy image in local storage to verify streaming
-        import os
         os.makedirs(os.path.join(settings.LOCAL_STORAGE_DIR, "raw"), exist_ok=True)
         test_file = os.path.join(settings.LOCAL_STORAGE_DIR, "raw", "photo_test_diag.jpg")
         with open(test_file, "wb") as f:
