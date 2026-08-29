@@ -1,8 +1,5 @@
 import type { NextConfig } from "next";
 
-const rawBackendUrl = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
-const cleanBackendUrl = rawBackendUrl.replace(/\/+$/, "").replace(/\/api$/, "");
-
 const nextConfig: NextConfig = {
   reactStrictMode: false,
   trailingSlash: false,
@@ -10,14 +7,22 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   async rewrites() {
+    const backendUrl = (
+      process.env.BACKEND_INTERNAL_URL ||
+      process.env.NEXT_PUBLIC_BACKEND_URL ||
+      "https://photo-oub1.onrender.com"
+    )
+      .replace(/\/+$/, "")
+      .replace(/\/api$/, "");
+
     return [
       {
         source: "/api/:path*",
-        destination: `${cleanBackendUrl}/api/:path*`,
+        destination: `${backendUrl}/api/:path*`,
       },
       {
         source: "/static/:path*",
-        destination: `${cleanBackendUrl}/static/:path*`,
+        destination: `${backendUrl}/static/:path*`,
       },
     ];
   },
