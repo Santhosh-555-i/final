@@ -1,4 +1,5 @@
 import unittest
+import numpy as np
 from fastapi.testclient import TestClient
 from app.main import app
 from app.config import settings
@@ -38,6 +39,31 @@ class TestPhotoStorageAndUrlResolution(unittest.TestCase):
         self.assertEqual(data["status"], "healthy")
         self.assertIn("supabase_configured", data)
         self.assertIn("db_mode", data)
+
+    def test_match_selfie_vector_pipeline(self):
+        # Create an event and photo with mock 512-d embedding
+        ev = db_service.create_event("Test Selfie Vector Match Event", "MATCH-EVT-01")
+        mock_embedding = [0.1] * 512
+        photo = db_service.insert_photo_and_embeddings(
+            event_id=ev["id"],
+            image_url="/static/raw/photo_mock.jpg",
+            thumbnail_url="/static/thumbnails/thumb_mock.jpg",
+            faces=[{"embedding": mock_embedding, "bounding_box": {"x": 0.1, "y": 0.1, "width": 0.5, "height": 0.5}}]
+        )
+        self.assertIsNotNone(photo)
+        self.assertEqual(photo["faces_detected"], 1)
+
+        # Run vector match
+        matches = db_service.match_selfie_vector(
+            event_id=ev["id"],
+            selfie_vector=mock_embedding,
+            threshold=0.5
+        )
+        self.assertTrue(len(matches) >= 1)
+        self.assertEqual(matches[0]["photo_id"], photo["id"])
+        self.assertTrue(matches[0]["similarity"] > 0.9)
+        self.assertIn("image_url", matches[0])
+        self.assertIn("thumbnail_url", matches[0])
 
     def test_fallback_static_or_file_stream(self):
         # Create a temporary dummy image in local storage to verify streaming

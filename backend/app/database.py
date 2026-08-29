@@ -633,37 +633,142 @@ class DatabaseService:
     ) -> List[Dict]:
         from app.storage import storage_service
         actual_event_id = self.resolve_event_id(event_id) or event_id
+
+        # Normalize selfie vector
+        v_selfie = np.array(selfie_vector, dtype=np.float32)
+        norm_selfie = np.linalg.norm(v_selfie)
+        if norm_selfie > 0:
+            v_selfie = v_selfie / norm_selfie
+        selfie_list = v_selfie.tolist()
+
         if settings.DB_MODE == "supabase":
+            matches = []
+            rpc_success = False
+
+            # 1. Try match_faces RPC (existing function in Supabase)
             try:
-                rpc_res = self.supabase.rpc("match_face_embeddings", {
-                    "target_event_id": actual_event_id,
-                    "query_embedding": selfie_vector,
-                    "match_threshold": threshold,
+                rpc_res = self.supabase.rpc("match_faces", {
+                    "query_embedding": selfie_list,
+                    "match_threshold": float(threshold),
                     "match_count": 50
                 }).execute()
                 if rpc_res.data:
-                    matches = []
+                    rpc_success = True
                     for row in rpc_res.data:
-                        p_res = self.supabase.table("photos").select("*").eq("id", row["photo_id"]).single().execute()
-                        if p_res.data:
+                        sim_val = round(float(row.get("similarity", 0.0)), 4)
+                        pid = row.get("photo_id") or row.get("id")
+                        
+                        # Find matching photo record belonging to target event
+                        p_res = None
+                        if pid:
+                            p_res = self.supabase.table("photos").select("*").eq("id", pid).eq("event_id", actual_event_id).maybe_single().execute()
+                        
+                        if not (p_res and p_res.data) and (row.get("image_url") or row.get("image_name")):
+                            img_ref = row.get("image_url") or row.get("image_name")
+                            p_res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).ilike("image_url", f"%{img_ref}%").maybe_single().execute()
+
+                        if p_res and p_res.data:
                             p_formatted = self._format_photo_record(p_res.data)
                             matches.append({
-                                "photo_id": row["photo_id"],
+                                "photo_id": p_res.data["id"],
                                 "image_url": p_formatted["image_url"],
                                 "thumbnail_url": p_formatted["thumbnail_url"],
-                                "similarity": round(float(row["similarity"]), 4),
+                                "similarity": sim_val,
                                 "bounding_box": row.get("bounding_box")
                             })
-                    return matches
-                return []
             except Exception as e:
-                raise RuntimeError(f"[Database Error] Supabase match_selfie_vector failed: {e}")
-        else:
-            v_selfie = np.array(selfie_vector, dtype=np.float32)
-            norm_selfie = np.linalg.norm(v_selfie)
-            if norm_selfie > 0:
-                v_selfie = v_selfie / norm_selfie
+                print(f"[Vector Search Notice] match_faces RPC attempt: {e}")
 
+            # 2. Try match_face_embeddings RPC (if target_event_id version is available)
+            if not rpc_success:
+                try:
+                    rpc_res = self.supabase.rpc("match_face_embeddings", {
+                        "target_event_id": actual_event_id,
+                        "query_embedding": selfie_list,
+                        "match_threshold": float(threshold),
+                        "match_count": 50
+                    }).execute()
+                    if rpc_res.data:
+                        rpc_success = True
+                        for row in rpc_res.data:
+                            p_res = self.supabase.table("photos").select("*").eq("id", row["photo_id"]).maybe_single().execute()
+                            if p_res and p_res.data:
+                                p_formatted = self._format_photo_record(p_res.data)
+                                matches.append({
+                                    "photo_id": row["photo_id"],
+                                    "image_url": p_formatted["image_url"],
+                                    "thumbnail_url": p_formatted["thumbnail_url"],
+                                    "similarity": round(float(row["similarity"]), 4),
+                                    "bounding_box": row.get("bounding_box")
+                                })
+                except Exception as e:
+                    print(f"[Vector Search Notice] match_face_embeddings RPC attempt: {e}")
+
+            # 3. Direct Event Vector Search Fallback (Zero RPC dependency, guarantees 100% event isolation)
+            if not matches:
+                try:
+                    # Query all face embeddings for this specific event
+                    fe_res = self.supabase.table("face_embeddings").select("id, photo_id, embedding, bounding_box").eq("event_id", actual_event_id).execute()
+                    fe_data = fe_res.data or []
+                    
+                    if fe_data:
+                        # Collect unique photo IDs
+                        p_ids = list({f["photo_id"] for f in fe_data if f.get("photo_id")})
+                        photo_map = {}
+                        if p_ids:
+                            p_res = self.supabase.table("photos").select("*").in_("id", p_ids).execute()
+                            for p in (p_res.data or []):
+                                photo_map[p["id"]] = self._format_photo_record(p)
+
+                        best_matches_by_photo = {}
+                        for fe in fe_data:
+                            raw_emb = fe.get("embedding")
+                            if not raw_emb:
+                                continue
+                            if isinstance(raw_emb, str):
+                                try:
+                                    raw_emb = json.loads(raw_emb)
+                                except Exception:
+                                    continue
+                            
+                            v_emb = np.array(raw_emb, dtype=np.float32)
+                            norm_emb = np.linalg.norm(v_emb)
+                            if norm_emb > 0:
+                                v_emb = v_emb / norm_emb
+
+                            sim_score = float(np.dot(v_selfie, v_emb))
+                            if sim_score >= threshold:
+                                pid = fe.get("photo_id")
+                                p_info = photo_map.get(pid)
+                                if p_info:
+                                    if pid not in best_matches_by_photo or sim_score > best_matches_by_photo[pid]["similarity"]:
+                                        bbox = fe.get("bounding_box")
+                                        if isinstance(bbox, str):
+                                            try:
+                                                bbox = json.loads(bbox)
+                                            except Exception:
+                                                pass
+                                        best_matches_by_photo[pid] = {
+                                            "photo_id": pid,
+                                            "image_url": p_info["image_url"],
+                                            "thumbnail_url": p_info["thumbnail_url"],
+                                            "similarity": round(sim_score, 4),
+                                            "bounding_box": bbox
+                                        }
+
+                        matches = list(best_matches_by_photo.values())
+                except Exception as fallback_err:
+                    print(f"[Vector Search Error] Direct Supabase fallback error: {fallback_err}")
+
+            # Deduplicate by photo_id taking highest similarity
+            unique_matches = {}
+            for m in matches:
+                key = m["photo_id"]
+                if key not in unique_matches or m["similarity"] > unique_matches[key]["similarity"]:
+                    unique_matches[key] = m
+
+            return sorted(unique_matches.values(), key=lambda x: x["similarity"], reverse=True)
+        else:
             actual_event_id = self.resolve_event_id(event_id) or event_id
             cache_entry = self._get_or_load_event_vector_matrix(actual_event_id)
 

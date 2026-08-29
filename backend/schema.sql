@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
 CREATE OR REPLACE FUNCTION match_face_embeddings(
     target_event_id UUID,
     query_embedding vector(512),
-    match_threshold FLOAT DEFAULT 0.68,
+    match_threshold FLOAT DEFAULT 0.55,
     match_count INT DEFAULT 50
 )
 RETURNS TABLE (
@@ -134,6 +134,35 @@ BEGIN
     FROM face_embeddings fe
     WHERE fe.event_id = target_event_id
       AND 1 - (fe.embedding <=> query_embedding) >= match_threshold
+    ORDER BY similarity DESC
+    LIMIT match_count;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION match_faces(
+    query_embedding vector(512),
+    match_threshold FLOAT DEFAULT 0.55,
+    match_count INT DEFAULT 50
+)
+RETURNS TABLE (
+    id UUID,
+    photo_id UUID,
+    event_id UUID,
+    similarity FLOAT,
+    bounding_box JSONB
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        fe.id,
+        fe.photo_id,
+        fe.event_id,
+        1 - (fe.embedding <=> query_embedding) AS similarity,
+        fe.bounding_box
+    FROM face_embeddings fe
+    WHERE 1 - (fe.embedding <=> query_embedding) >= match_threshold
     ORDER BY similarity DESC
     LIMIT match_count;
 END;
