@@ -178,7 +178,7 @@ class StorageService:
 
         clean_filename = self.extract_clean_filename(url_or_path)
 
-        # Check local storage directory first if it exists
+        # 1. Check local storage directory first if it exists
         if clean_filename:
             is_thumb = clean_filename.startswith("thumb_")
             sub_folder = "thumbnails" if is_thumb else "raw"
@@ -190,16 +190,17 @@ class StorageService:
                 except Exception:
                     pass
 
-        # If Supabase client is available, try downloading from Supabase storage
+        # 2. If Supabase client is available, try downloading via Supabase storage SDK across path candidates
         if self.supabase and clean_filename:
-            try:
-                data = self.supabase.storage.from_(self.bucket_name).download(clean_filename)
-                if data and len(data) > 0:
-                    return data
-            except Exception as sb_err:
-                print(f"[Storage] Supabase download attempt for {clean_filename}: {sb_err}")
+            for candidate in [clean_filename, f"raw/{clean_filename}", f"photos/{clean_filename}"]:
+                try:
+                    data = self.supabase.storage.from_(self.bucket_name).download(candidate)
+                    if data and len(data) > 0:
+                        return data
+                except Exception as sb_err:
+                    pass
 
-        # If it is a full remote HTTP URL
+        # 3. Direct HTTP fetch from full remote URL
         if url_or_path.startswith("http://") or url_or_path.startswith("https://"):
             try:
                 resp = requests.get(url_or_path, timeout=10)
@@ -207,6 +208,16 @@ class StorageService:
                     return resp.content
             except Exception as http_err:
                 print(f"[Storage] Remote HTTP fetch error for {url_or_path}: {http_err}")
+
+        # 4. Direct HTTP fetch from Supabase CDN public URL
+        if settings.SUPABASE_URL and clean_filename:
+            cdn_url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{self.bucket_name}/{clean_filename}"
+            try:
+                resp = requests.get(cdn_url, timeout=10)
+                if resp.status_code == 200 and len(resp.content) > 0:
+                    return resp.content
+            except Exception as cdn_err:
+                pass
 
         return None
 
