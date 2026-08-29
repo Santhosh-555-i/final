@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const rawBackendUrl = process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
-const BACKEND_INTERNAL_URL = rawBackendUrl.replace(/\/+$/, "");
+const cleanBackendUrl = rawBackendUrl.replace(/\/+$/, "").replace(/\/api$/, "");
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
@@ -13,11 +13,11 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/api/:path*",
-        destination: `${BACKEND_INTERNAL_URL}/api/:path*`,
+        destination: `${cleanBackendUrl}/api/:path*`,
       },
       {
         source: "/static/:path*",
-        destination: `${BACKEND_INTERNAL_URL}/static/:path*`,
+        destination: `${cleanBackendUrl}/static/:path*`,
       },
     ];
   },

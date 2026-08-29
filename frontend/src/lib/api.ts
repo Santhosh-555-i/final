@@ -11,15 +11,20 @@ export async function adminFetch(url: string, options: RequestInit = {}) {
 }
 
 export function getApiBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_API_URL && process.env.NEXT_PUBLIC_API_URL !== "/api") {
-    return process.env.NEXT_PUBLIC_API_URL;
+  const envUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!envUrl || envUrl === "/api" || envUrl === "/api/") {
+    return "/api";
   }
-  return "/api";
+  const cleanUrl = envUrl.replace(/\/+$/, "");
+  if (cleanUrl.endsWith("/api")) {
+    return cleanUrl;
+  }
+  return `${cleanUrl}/api`;
 }
 
 export function getBackendUrl(): string {
   if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-    return process.env.NEXT_PUBLIC_BACKEND_URL;
+    return process.env.NEXT_PUBLIC_BACKEND_URL.replace(/\/+$/, "");
   }
   return "";
 }
