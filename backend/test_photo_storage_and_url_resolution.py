@@ -41,8 +41,10 @@ class TestPhotoStorageAndUrlResolution(unittest.TestCase):
         self.assertIn("db_mode", data)
 
     def test_match_selfie_vector_pipeline(self):
-        # Create an event and photo with mock 512-d embedding
-        ev = db_service.create_event("Test Selfie Vector Match Event", "MATCH-EVT-01")
+        # Create an event and photo with unique code and mock 512-d embedding
+        import uuid
+        test_code = f"MATCH-{uuid.uuid4().hex[:8].upper()}"
+        ev = db_service.create_event("Test Selfie Vector Match Event", test_code)
         mock_embedding = [0.1] * 512
         photo = db_service.insert_photo_and_embeddings(
             event_id=ev["id"],

@@ -656,12 +656,23 @@ class DatabaseService:
                     rpc_success = True
                     for row in rpc_res.data:
                         sim_val = round(float(row.get("similarity", 0.0)), 4)
-                        pid = row.get("photo_id") or row.get("id")
+                        pid = row.get("photo_id")
+                        candidate_id = row.get("id")
                         
                         # Find matching photo record belonging to target event
                         p_res = None
                         if pid:
                             p_res = self.supabase.table("photos").select("*").eq("id", pid).eq("event_id", actual_event_id).maybe_single().execute()
+                        
+                        if not (p_res and p_res.data) and candidate_id:
+                            # Try candidate_id as photo_id first
+                            p_res = self.supabase.table("photos").select("*").eq("id", candidate_id).eq("event_id", actual_event_id).maybe_single().execute()
+                            # If not found, candidate_id may be the face_embeddings row id
+                            if not (p_res and p_res.data):
+                                fe_row = self.supabase.table("face_embeddings").select("photo_id, event_id").eq("id", candidate_id).maybe_single().execute()
+                                if fe_row and fe_row.data and fe_row.data.get("photo_id"):
+                                    real_pid = fe_row.data["photo_id"]
+                                    p_res = self.supabase.table("photos").select("*").eq("id", real_pid).eq("event_id", actual_event_id).maybe_single().execute()
                         
                         if not (p_res and p_res.data) and (row.get("image_url") or row.get("image_name")):
                             img_ref = row.get("image_url") or row.get("image_name")
