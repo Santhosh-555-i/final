@@ -133,6 +133,14 @@ export const PhotoMasonry: React.FC<PhotoMasonryProps> = ({
                 }`}
                 loading="lazy"
                 decoding="async"
+                onError={(e) => {
+                  console.warn("[EventLens Diagnostic] Image failed to load:", {
+                    photo_id: photo.photo_id,
+                    requested_src: thumbUrl,
+                    raw_image_url: photo.image_url,
+                    raw_thumb_url: photo.thumbnail_url
+                  });
+                }}
               />
 
               {/* Gradient Overlay */}

@@ -476,13 +476,24 @@ class DatabaseService:
             conn.close()
             return events
 
+    def _format_photo_record(self, p: Dict) -> Dict:
+        if not p:
+            return p
+        from app.storage import storage_service
+        raw_img = p.get("image_url", "")
+        raw_thumb = p.get("thumbnail_url", "")
+        p["image_url"] = storage_service.resolve_image_url(raw_img, is_thumbnail=False)
+        p["thumbnail_url"] = storage_service.resolve_image_url(raw_thumb or raw_img, is_thumbnail=True)
+        return p
+
     def get_event_photos(self, event_id: str, limit: int = 200, offset: int = 0) -> List[Dict]:
         actual_event_id = self.resolve_event_id(event_id) or event_id
 
         if settings.DB_MODE == "supabase":
             try:
                 res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).order("created_at", desc=True).range(offset, offset+limit-1).execute()
-                return res.data or []
+                photos = res.data or []
+                return [self._format_photo_record(p) for p in photos]
             except Exception as e:
                 raise RuntimeError(f"[Database Error] Supabase get_event_photos failed: {e}")
         else:
@@ -499,7 +510,7 @@ class DatabaseService:
             )
             rows = cursor.fetchall()
             conn.close()
-            return [dict(r) for r in rows]
+            return [self._format_photo_record(dict(r)) for r in rows]
 
     def insert_photo_and_embeddings(
         self, event_id: str, image_url: str, thumbnail_url: str, faces: List[Dict]
@@ -531,7 +542,7 @@ class DatabaseService:
                 if embedding_rows:
                     self.supabase.table("face_embeddings").insert(embedding_rows).execute()
 
-                return {
+                record = {
                     "id": photo_id,
                     "event_id": actual_event_id,
                     "image_url": image_url,
@@ -539,6 +550,7 @@ class DatabaseService:
                     "created_at": created_at,
                     "faces_detected": len(faces)
                 }
+                return self._format_photo_record(record)
             except Exception as e:
                 raise RuntimeError(f"[Database Error] Supabase insert photo failed: {e}")
         else:
@@ -619,6 +631,7 @@ class DatabaseService:
     def match_selfie_vector(
         self, event_id: str, selfie_vector: List[float], threshold: float = 0.55
     ) -> List[Dict]:
+        from app.storage import storage_service
         actual_event_id = self.resolve_event_id(event_id) or event_id
         if settings.DB_MODE == "supabase":
             try:
@@ -633,10 +646,11 @@ class DatabaseService:
                     for row in rpc_res.data:
                         p_res = self.supabase.table("photos").select("*").eq("id", row["photo_id"]).single().execute()
                         if p_res.data:
+                            p_formatted = self._format_photo_record(p_res.data)
                             matches.append({
                                 "photo_id": row["photo_id"],
-                                "image_url": p_res.data["image_url"],
-                                "thumbnail_url": p_res.data["thumbnail_url"],
+                                "image_url": p_formatted["image_url"],
+                                "thumbnail_url": p_formatted["thumbnail_url"],
                                 "similarity": round(float(row["similarity"]), 4),
                                 "bounding_box": row.get("bounding_box")
                             })
@@ -666,15 +680,16 @@ class DatabaseService:
                 sim_val = float(similarity)
                 m = metas[idx]
                 pid = m["photo_id"]
-                img_url = m["image_url"]
-                photo_key = os.path.basename(img_url).lower().strip() if img_url else pid
+                resolved_img = storage_service.resolve_image_url(m["image_url"], is_thumbnail=False)
+                resolved_thumb = storage_service.resolve_image_url(m["thumbnail_url"] or m["image_url"], is_thumbnail=True)
+                photo_key = os.path.basename(resolved_img).lower().strip() if resolved_img else pid
 
                 if sim_val >= threshold:
                     if photo_key not in strict_matches_by_photo or sim_val > strict_matches_by_photo[photo_key]["similarity"]:
                         strict_matches_by_photo[photo_key] = {
                             "photo_id": pid,
-                            "image_url": img_url,
-                            "thumbnail_url": m["thumbnail_url"],
+                            "image_url": resolved_img,
+                            "thumbnail_url": resolved_thumb,
                             "similarity": round(sim_val, 4),
                             "bounding_box": m["bounding_box"]
                         }
@@ -831,7 +846,7 @@ class DatabaseService:
                 for pid in photo_ids:
                     p_res = self.supabase.table("photos").select("id, image_url, thumbnail_url, created_at").eq("id", pid).maybe_single().execute()
                     if p_res.data:
-                        photos.append(p_res.data)
+                        photos.append(self._format_photo_record(p_res.data))
 
                 return {
                     "token": token,
@@ -867,7 +882,7 @@ class DatabaseService:
                 cursor.execute("SELECT id, image_url, thumbnail_url, created_at FROM photos WHERE id = ?", (pid,))
                 p = cursor.fetchone()
                 if p:
-                    photos.append(dict(p))
+                    photos.append(self._format_photo_record(dict(p)))
 
             conn.close()
             return {

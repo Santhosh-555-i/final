@@ -23,8 +23,12 @@ export function getApiBaseUrl(): string {
 }
 
 export function getBackendUrl(): string {
-  if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-    return process.env.NEXT_PUBLIC_BACKEND_URL.replace(/\/+$/, "");
+  if (process.env.NEXT_PUBLIC_BACKEND_URL?.trim()) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL.trim().replace(/\/+$/, "");
+  }
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (apiUrl && (apiUrl.startsWith("http://") || apiUrl.startsWith("https://"))) {
+    return apiUrl.replace(/\/+$/, "").replace(/\/api$/, "");
   }
   return "";
 }
@@ -185,18 +189,19 @@ export async function compressImage(file: File | Blob, maxDimension = 720, quali
 }
 
 /**
- * Normalizes photo image URLs to ensure clean paths.
+ * Normalizes photo image URLs to ensure clean, valid absolute or proxied paths.
  */
 export function getFullImageUrl(url: string): string {
-  if (!url) return "/placeholder.jpg";
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
+  if (!url || typeof url !== "string") return "/placeholder.jpg";
+  const trimmed = url.trim();
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
   }
   const backend = getBackendUrl();
-  if (url.startsWith("/")) {
-    return backend ? `${backend}${url}` : url;
+  if (trimmed.startsWith("/")) {
+    return backend ? `${backend}${trimmed}` : trimmed;
   }
-  return backend ? `${backend}/${url}` : `/${url}`;
+  return backend ? `${backend}/${trimmed}` : `/${trimmed}`;
 }
 
 export function parseApiErrorMessage(err: any, fallback: string): string {

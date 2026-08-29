@@ -265,20 +265,22 @@ class FaceClusteringEngine:
                                     bbox = json.loads(bbox)
                                 except Exception:
                                     pass
+                            from app.storage import storage_service
                             photo_set[pid] = {
                                 "photo_id": pid,
-                                "image_url": p.get("image_url"),
-                                "thumbnail_url": p.get("thumbnail_url"),
+                                "image_url": storage_service.resolve_image_url(p.get("image_url", ""), is_thumbnail=False),
+                                "thumbnail_url": storage_service.resolve_image_url(p.get("thumbnail_url") or p.get("image_url", ""), is_thumbnail=True),
                                 "bounding_box": bbox,
                                 "created_at": p.get("created_at")
                             }
                     
                     if len(photo_set) > 0:
+                        from app.storage import storage_service
                         results.append({
                             "cluster_id": cid,
                             "event_id": actual_event_id,
                             "name": c["name"],
-                            "thumbnail_url": c.get("thumbnail_url"),
+                            "thumbnail_url": storage_service.resolve_image_url(c.get("thumbnail_url", ""), is_thumbnail=True),
                             "face_count": len(faces),
                             "photo_count": len(photo_set),
                             "photos": list(photo_set.values())
@@ -314,13 +316,14 @@ class FaceClusteringEngine:
                 if not faces:
                     continue
                 photo_map = {}
+                from app.storage import storage_service
                 for f in faces:
                     pid = f["photo_id"]
                     if pid not in photo_map:
                         photo_map[pid] = {
                             "photo_id": pid,
-                            "image_url": f["image_url"],
-                            "thumbnail_url": f["thumbnail_url"],
+                            "image_url": storage_service.resolve_image_url(f["image_url"], is_thumbnail=False),
+                            "thumbnail_url": storage_service.resolve_image_url(f["thumbnail_url"] or f["image_url"], is_thumbnail=True),
                             "bounding_box": json.loads(f["bounding_box_json"]) if f["bounding_box_json"] else None,
                             "created_at": f["created_at"]
                         }
@@ -330,7 +333,7 @@ class FaceClusteringEngine:
                         "cluster_id": cid,
                         "event_id": actual_event_id,
                         "name": c["name"],
-                        "thumbnail_url": c["thumbnail_url"],
+                        "thumbnail_url": storage_service.resolve_image_url(c["thumbnail_url"], is_thumbnail=True),
                         "face_count": len(faces),
                         "photo_count": len(photo_map),
                         "photos": list(photo_map.values())

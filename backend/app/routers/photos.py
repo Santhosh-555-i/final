@@ -99,6 +99,51 @@ async def match_attendee_selfie(
     )
 
 
+@router.get("/file/{filename:path}")
+@router.get("/raw/{filename:path}")
+async def get_photo_file(filename: str):
+    """
+    Direct high-speed photo streaming endpoint.
+    Safely retrieves the image bytes from Supabase Storage or local disk and streams them with caching.
+    """
+    clean_name = storage_service.extract_clean_filename(filename)
+    photo_bytes = storage_service.get_photo_bytes(clean_name)
+    if not photo_bytes:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    return Response(
+        content=photo_bytes,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",
+            "Content-Type": "image/jpeg"
+        }
+    )
+
+@router.get("/thumbnail/{filename:path}")
+async def get_thumbnail_file(filename: str):
+    """
+    Direct high-speed thumbnail streaming endpoint.
+    """
+    clean_name = storage_service.extract_clean_filename(filename)
+    photo_bytes = storage_service.get_photo_bytes(clean_name)
+    if not photo_bytes:
+        # Fallback to base photo if thumb not found
+        base_name = clean_name.replace("thumb_", "photo_")
+        photo_bytes = storage_service.get_photo_bytes(base_name)
+
+    if not photo_bytes:
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+
+    return Response(
+        content=photo_bytes,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=604800, immutable",
+            "Content-Type": "image/jpeg"
+        }
+    )
+
 @router.post("/download-zip")
 async def download_photos_zip(
     photo_urls: List[str]
@@ -117,18 +162,9 @@ async def download_photos_zip(
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for idx, url in enumerate(photo_urls, 1):
             try:
-                if url.startswith("/static/"):
-                    # Local storage file path
-                    rel_path = url.replace("/static/", "")
-                    full_path = os.path.join(settings.LOCAL_STORAGE_DIR, rel_path)
-                    if os.path.exists(full_path):
-                        with open(full_path, "rb") as f:
-                            zf.writestr(f"event_photo_{idx}.jpg", f.read())
-                else:
-                    # Remote HTTP URL
-                    resp = requests.get(url, timeout=10, stream=True)
-                    if resp.status_code == 200:
-                        zf.writestr(f"event_photo_{idx}.jpg", resp.content)
+                photo_bytes = storage_service.get_photo_bytes(url)
+                if photo_bytes:
+                    zf.writestr(f"event_photo_{idx}.jpg", photo_bytes)
             except Exception as e:
                 print(f"[ZIP Download Error] Failed to include photo {url}: {e}")
 
