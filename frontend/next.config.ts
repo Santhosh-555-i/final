@@ -1,5 +1,20 @@
 import type { NextConfig } from "next";
 
+const rawBackendUrl =
+  process.env.BACKEND_INTERNAL_URL ||
+  process.env.NEXT_PUBLIC_BACKEND_URL ||
+  process.env.RAILWAY_STATIC_URL ||
+  process.env.RENDER_EXTERNAL_URL ||
+  "http://127.0.0.1:8000";
+
+const backendUrl = (
+  rawBackendUrl.startsWith("http://") || rawBackendUrl.startsWith("https://")
+    ? rawBackendUrl
+    : `https://${rawBackendUrl}`
+)
+  .replace(/\/+$/, "")
+  .replace(/\/api$/, "");
+
 const nextConfig: NextConfig = {
   reactStrictMode: false,
   trailingSlash: false,
@@ -7,14 +22,6 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   async rewrites() {
-    const backendUrl = (
-      process.env.BACKEND_INTERNAL_URL ||
-      process.env.NEXT_PUBLIC_BACKEND_URL ||
-      "https://photo-oub1.onrender.com"
-    )
-      .replace(/\/+$/, "")
-      .replace(/\/api$/, "");
-
     return [
       {
         source: "/api/:path*",

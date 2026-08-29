@@ -12,16 +12,23 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# Enable CORS for Vercel frontend and all local origins
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+# Enable CORS for Vercel frontends, localhost, Railway, Render, and configured origins
+cors_origins = list(dict.fromkeys(
+    settings.CORS_ORIGINS + [
         "https://photo-lake-six.vercel.app",
         "http://localhost:3000",
-        "*"
-    ],
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+    ]
+))
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.up\.railway\.app|https://.*\.onrender\.com|http://localhost:\d+|http://127\.0\.0\.1:\d+",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD", "PATCH"],
     allow_headers=["*"],
     expose_headers=["*"],
 )

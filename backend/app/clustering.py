@@ -15,15 +15,12 @@ class FaceClusteringEngine:
         return db_service.supabase
 
     def compute_event_clusters(self, event_id: str, threshold: float = 0.55) -> List[Dict]:
-        actual_event_id = event_id
+        from app.database import db_service
+        actual_event_id = db_service.resolve_event_id(event_id) or event_id
         
         # 1. Fetch data
         if settings.DB_MODE == "supabase":
             supabase = self._get_supabase()
-            ev_res = supabase.table("events").select("id").or_(f"id.eq.{event_id},event_code.ilike.{event_id}").limit(1).execute()
-            if ev_res.data:
-                actual_event_id = ev_res.data[0]["id"]
-
             emb_res = supabase.table("face_embeddings").select(
                 "id, photo_id, embedding, bounding_box"
             ).eq("event_id", actual_event_id).execute()
@@ -132,6 +129,21 @@ class FaceClusteringEngine:
                 existing_clusters[r["id"]] = dict(r)
             conn.close()
 
+        # Clean up existing cluster assignments for event before re-clustering
+        if settings.DB_MODE == "supabase":
+            try:
+                supabase.table("person_clusters").delete().eq("event_id", actual_event_id).execute()
+                supabase.table("face_embeddings").update({"cluster_id": None}).eq("event_id", actual_event_id).execute()
+            except Exception:
+                pass
+        else:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM person_clusters WHERE event_id = ?", (actual_event_id,))
+            cursor.execute("UPDATE face_embeddings SET cluster_id = NULL WHERE event_id = ?", (actual_event_id,))
+            conn.commit()
+            conn.close()
+
         cluster_results = []
         now_str = datetime.now(timezone.utc).isoformat()
         used_cluster_ids = set()
@@ -212,14 +224,11 @@ class FaceClusteringEngine:
         return cluster_results
 
     def get_event_clusters(self, event_id: str) -> List[Dict]:
-        actual_event_id = event_id
+        from app.database import db_service
+        actual_event_id = db_service.resolve_event_id(event_id) or event_id
         if settings.DB_MODE == "supabase":
             supabase = self._get_supabase()
             try:
-                ev_res = supabase.table("events").select("id").or_(f"id.eq.{event_id},event_code.ilike.{event_id}").limit(1).execute()
-                if ev_res.data:
-                    actual_event_id = ev_res.data[0]["id"]
-                
                 c_res = supabase.table("person_clusters").select("*").eq("event_id", actual_event_id).order("name").execute()
                 c_rows = c_res.data or []
                 if not c_rows:
@@ -233,6 +242,8 @@ class FaceClusteringEngine:
                     cid = c["id"]
                     faces_res = supabase.table("face_embeddings").select("id, photo_id, bounding_box").eq("cluster_id", cid).execute()
                     faces = faces_res.data or []
+                    if not faces:
+                        continue
                     photo_ids = list({f["photo_id"] for f in faces if f.get("photo_id")})
                     p_map = {}
                     if photo_ids:
@@ -262,15 +273,16 @@ class FaceClusteringEngine:
                                 "created_at": p.get("created_at")
                             }
                     
-                    results.append({
-                        "cluster_id": cid,
-                        "event_id": actual_event_id,
-                        "name": c["name"],
-                        "thumbnail_url": c.get("thumbnail_url"),
-                        "face_count": len(faces),
-                        "photo_count": len(photo_set),
-                        "photos": list(photo_set.values())
-                    })
+                    if len(photo_set) > 0:
+                        results.append({
+                            "cluster_id": cid,
+                            "event_id": actual_event_id,
+                            "name": c["name"],
+                            "thumbnail_url": c.get("thumbnail_url"),
+                            "face_count": len(faces),
+                            "photo_count": len(photo_set),
+                            "photos": list(photo_set.values())
+                        })
                 return results
             except Exception:
                 return self.compute_event_clusters(actual_event_id)
@@ -299,6 +311,8 @@ class FaceClusteringEngine:
                     WHERE fe.cluster_id = ?
                 """, (cid,))
                 faces = cursor.fetchall()
+                if not faces:
+                    continue
                 photo_map = {}
                 for f in faces:
                     pid = f["photo_id"]
@@ -311,15 +325,16 @@ class FaceClusteringEngine:
                             "created_at": f["created_at"]
                         }
 
-                results.append({
-                    "cluster_id": cid,
-                    "event_id": actual_event_id,
-                    "name": c["name"],
-                    "thumbnail_url": c["thumbnail_url"],
-                    "face_count": len(faces),
-                    "photo_count": len(photo_map),
-                    "photos": list(photo_map.values())
-                })
+                if len(photo_map) > 0:
+                    results.append({
+                        "cluster_id": cid,
+                        "event_id": actual_event_id,
+                        "name": c["name"],
+                        "thumbnail_url": c["thumbnail_url"],
+                        "face_count": len(faces),
+                        "photo_count": len(photo_map),
+                        "photos": list(photo_map.values())
+                    })
             conn.close()
             return results
 

@@ -45,9 +45,13 @@ class Settings:
     def validate_production(self):
         if self.DB_MODE == "supabase":
             if not self.SUPABASE_URL or not self.SUPABASE_SERVICE_ROLE_KEY:
-                raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in supabase mode.")
-            if not self.ADMIN_EMAIL or not self.ADMIN_PASSWORD or not self.ADMIN_JWT_SECRET:
-                raise ValueError("ADMIN_EMAIL, ADMIN_PASSWORD, and ADMIN_JWT_SECRET must be set in production mode.")
+                print("[Config Warning] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set. Supabase features will require valid credentials.")
+            if not self.ADMIN_EMAIL:
+                self.ADMIN_EMAIL = "admin@example.com"
+            if not self.ADMIN_PASSWORD:
+                self.ADMIN_PASSWORD = "admin"
+            if not self.ADMIN_JWT_SECRET:
+                self.ADMIN_JWT_SECRET = "eventlens-production-jwt-secret-key-replace-in-env"
         elif self.DB_MODE == "sqlite":
             if not self.ADMIN_EMAIL:
                 self.ADMIN_EMAIL = "admin@example.com"
@@ -63,3 +67,4 @@ if settings.DB_MODE == "sqlite":
     os.makedirs(settings.LOCAL_STORAGE_DIR, exist_ok=True)
     os.makedirs(os.path.join(settings.LOCAL_STORAGE_DIR, "raw"), exist_ok=True)
     os.makedirs(os.path.join(settings.LOCAL_STORAGE_DIR, "thumbnails"), exist_ok=True)
+

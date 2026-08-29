@@ -275,7 +275,7 @@ export async function importGoogleDrive(
 }
 
 export async function getEventByCode(code: string): Promise<EventData> {
-  const cleanCode = decodeURIComponent(code).trim().toUpperCase();
+  const cleanCode = decodeURIComponent(code).trim();
   const res = await fetch(`${getApiBaseUrl()}/events/${encodeURIComponent(cleanCode)}`);
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -285,8 +285,9 @@ export async function getEventByCode(code: string): Promise<EventData> {
 }
 
 export async function getEventPhotos(code: string, limit = 100, offset = 0): Promise<PhotoData[]> {
+  const cleanCode = decodeURIComponent(code).trim();
   const res = await fetch(
-    `${getApiBaseUrl()}/events/${encodeURIComponent(code.trim().toUpperCase())}/photos?limit=${limit}&offset=${offset}`
+    `${getApiBaseUrl()}/events/${encodeURIComponent(cleanCode)}/photos?limit=${limit}&offset=${offset}`
   );
   if (!res.ok) {
     return [];

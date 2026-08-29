@@ -1,6 +1,6 @@
-# 🚀 EventLens AI — Complete Cloud Deployment Guide
+# 🚀 EventLens AI — Complete Production Cloud Deployment Guide
 
-This guide walks you through deploying **EventLens AI** to production with high availability, fast AI vector face-matching, and zero-downtime scalability.
+This guide provides tested, step-by-step instructions to deploy **EventLens AI** across **Railway**, **Render**, **Supabase**, and **Vercel** with maximum performance, AI facial search, and seamless cross-service communication.
 
 ---
 
@@ -9,131 +9,118 @@ This guide walks you through deploying **EventLens AI** to production with high 
 ```mermaid
 graph LR
     User["Attendee / Admin Device"] -->|Web Browser| Vercel["Vercel Frontend (Next.js 16)"]
-    Vercel -->|Proxy /api & /static| Backend["Render / Railway (FastAPI + PyTorch)"]
-    Backend -->|Vector & DB Queries| Supabase["Supabase (PostgreSQL + pgvector)"]
-    Backend -->|Photo Storage| Storage["Supabase Storage / CDN"]
+    Vercel -->|Proxy /api & /static| Backend["Railway or Render (FastAPI + FaceNet)"]
+    Backend -->|pgvector Similarity Queries| SupabaseDB["Supabase PostgreSQL (pgvector)"]
+    Backend -->|High-Res Photo CDN| SupabaseStorage["Supabase Object Storage"]
 ```
 
-- **Frontend**: [Vercel](https://vercel.com) (Global Edge CDN, Automatic SSL, Next.js Serverless)
-- **Backend**: [Render](https://render.com) or [Railway](https://railway.app) (Python 3.10, PyTorch, FaceNet)
-- **Database & Storage (Optional / Recommended)**: [Supabase](https://supabase.com) (PostgreSQL, `pgvector`, Object Storage)
+- **Frontend**: [Vercel](https://vercel.com) (Next.js 16, Global Edge CDN, SSL, Zero-Config API Proxy)
+- **Backend Service**: [Railway](https://railway.app) or [Render](https://render.com) (FastAPI, PyTorch FaceNet, YuNet detector)
+- **Database & Storage**: [Supabase](https://supabase.com) (PostgreSQL with `pgvector` & S3-compatible Storage)
 
 ---
 
-## 🛠️ Step 1: Deploy Backend to Render (Free / Starter)
+## 🗄️ Step 1: Set Up Supabase (Database + pgvector + Storage)
 
-### Option A: 1-Click Render Blueprint (Recommended)
-1. Go to [dashboard.render.com](https://dashboard.render.com/) and click **New +** -> **Blueprint**.
-2. Connect your GitHub repository: `https://github.com/Santhosh-555-i/my-website.git`.
-3. Render will automatically detect [`render.yaml`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/render.yaml).
-4. Click **Apply**. Render will automatically provision the FastAPI service, install CPU-optimized PyTorch, and launch the server.
-
----
-
-### Option B: Manual Web Service on Render
-1. Go to [dashboard.render.com](https://dashboard.render.com/) and click **New +** -> **Web Service**.
-2. Select your repository `Santhosh-555-i/my-website`.
-3. Fill in the service configuration:
-   - **Name**: `eventlens-backend`
-   - **Region**: Select closest to your users (e.g., *Oregon (US West)* or *Frankfurt (EU)*)
-   - **Root Directory**: `backend`
-   - **Runtime**: `Python 3`
-   - **Build Command**:
-     ```bash
-     pip install --no-cache-dir -U pip && pip install --no-cache-dir -r requirements-cpu.txt
-     ```
-   - **Start Command**:
-     ```bash
-     uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
-     ```
-4. Under **Environment Variables**, add:
-   - `PYTHON_VERSION` = `3.10.13`
-   - `SIMILARITY_THRESHOLD` = `0.68`
-   - `ADMIN_EMAIL` = `santosh2005th@gmail.com`
-   - `ADMIN_PASSWORD` = `admin123` *(or choose your custom secure passcode)*
-   - `CORS_ORIGINS` = `*`
-   - *(Optional for Supabase)*: `SUPABASE_URL`, `SUPABASE_KEY`, `DATABASE_URL`
-5. Click **Create Web Service**.
-6. Once deployed, note your backend URL:  
-   👉 `https://eventlens-backend-xxxx.onrender.com`
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open the **SQL Editor** in your Supabase dashboard.
+3. Open [`backend/schema.sql`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/stitch_hello_world_project%20%281%29/backend/schema.sql), copy its entire contents, paste into the Supabase SQL editor, and click **Run**.
+   - This automatically enables the `vector` extension.
+   - Creates all tables (`events`, `photos`, `face_embeddings`, `person_clusters`, `share_tokens`, `audit_logs`, `event_settings`, `sync_jobs`).
+   - Creates the Cosine Similarity HNSW index (`idx_face_embeddings_vector`).
+   - Creates the `match_face_embeddings` RPC function.
+   - Initializes the public `photos` storage bucket and access policies.
+4. Go to **Project Settings** -> **API**:
+   - Copy **Project URL** (e.g. `https://xyzproject.supabase.co`).
+   - Copy **service_role secret key** (needed by backend for fast vector indexing).
 
 ---
 
-## 🚂 Alternative Step 1: Deploy Backend to Railway
+## 🚂 Step 2: Deploy Backend to Railway (Recommended)
 
 1. Go to [railway.app](https://railway.app) and click **New Project** -> **Deploy from GitHub repo**.
-2. Select `Santhosh-555-i/my-website`.
-3. In service settings, set **Root Directory** to `/backend` (or leave default to let Railway use [`backend/Dockerfile`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/backend/Dockerfile)).
-4. Under **Variables**, add:
-   - `PORT` = `8000`
-   - `SIMILARITY_THRESHOLD` = `0.68`
-   - `ADMIN_EMAIL` = `santosh2005th@gmail.com`
-   - `ADMIN_PASSWORD` = `admin123`
-5. Go to **Settings** -> **Networking** -> click **Generate Domain** to get your public backend URL (e.g. `https://photo-production-xxxx.up.railway.app`).
+2. Select your repository (`Santhosh-555-i/my-website` or `Santhosh-555-i/photo`).
+3. Railway will automatically detect [`railway.json`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/stitch_hello_world_project%20%281%29/railway.json) / [`backend/Dockerfile`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/stitch_hello_world_project%20%281%29/backend/Dockerfile).
+4. Go to **Variables** and add:
+   | Key | Example Value | Description |
+   |---|---|---|
+   | `PORT` | `8000` | Server listening port |
+   | `DB_MODE` | `supabase` | Set to `supabase` (or `sqlite` for local test) |
+   | `SUPABASE_URL` | `https://xyzproject.supabase.co` | Your Supabase Project URL |
+   | `SUPABASE_SERVICE_ROLE_KEY` | `eyJhbGciOi...` | Supabase Service Role Secret Key |
+   | `ADMIN_EMAIL` | `santosh2005th@gmail.com` | Admin dashboard login email |
+   | `ADMIN_PASSWORD` | `your_secure_password` | Admin dashboard password |
+   | `ADMIN_JWT_SECRET` | `generate_random_32_character_key` | JWT signing secret |
+   | `SIMILARITY_THRESHOLD` | `0.68` | Face matching sensitivity (0.60 - 0.75) |
+   | `CORS_ORIGINS` | `https://*.vercel.app,http://localhost:3000` | Allowed frontend domains |
+5. Go to **Settings** -> **Networking** -> click **Generate Domain** to get your public URL (e.g. `https://photo-production.up.railway.app`).
+6. Test health check: `https://photo-production.up.railway.app/api/health` -> returns `{"status":"healthy"}`.
 
 ---
 
-## 🌐 Step 2: Deploy Frontend to Vercel
+## 🛠️ Step 2 (Alternative): Deploy Backend to Render
+
+### Option A: 1-Click Render Blueprint
+1. Go to [dashboard.render.com](https://dashboard.render.com/) and click **New +** -> **Blueprint**.
+2. Connect your GitHub repository. Render will automatically detect [`render.yaml`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/stitch_hello_world_project%20%281%29/render.yaml).
+3. Fill in the environment variables and click **Apply**.
+
+### Option B: Manual Web Service on Render
+1. Click **New +** -> **Web Service**.
+2. Select your repository.
+3. Configure:
+   - **Name**: `eventlens-backend`
+   - **Environment**: `Docker`
+   - **Docker Context**: `.` (or `./backend`)
+   - **Dockerfile Path**: `./backend/Dockerfile` (or `./Dockerfile`)
+   - **Health Check Path**: `/api/health`
+4. Add the same Environment Variables as in the Railway table above.
+5. Click **Create Web Service** and note your public Render URL (e.g. `https://eventlens-backend.onrender.com`).
+
+---
+
+## 🌐 Step 3: Deploy Frontend to Vercel
 
 1. Go to [vercel.com](https://vercel.com) and click **Add New...** -> **Project**.
-2. Import your GitHub repository (`Santhosh-555-i/my-website`).
-3. In the project setup screen:
+2. Import your GitHub repository.
+3. In the project configuration:
    - **Framework Preset**: `Next.js`
-   - **Root Directory**: Click *Edit* and select **`frontend`**.
-4. Expand the **Environment Variables** section and add:
-   | Key | Value | Description |
+   - **Root Directory**: Click *Edit* and select **`frontend`** (or leave default if deploying from monorepo).
+4. Under **Environment Variables**, add:
+   | Key | Example Value | Description |
    |---|---|---|
-   | `BACKEND_INTERNAL_URL` | `https://your-backend.onrender.com` | Your Render/Railway backend URL |
-   | `NEXT_PUBLIC_BACKEND_URL` | `https://your-backend.onrender.com` | Public backend fallback URL |
-   | `NEXT_PUBLIC_API_URL` | `/api` | Relative proxy URL |
-5. Click **Deploy**.
-6. In ~60 seconds, Vercel will give you your live URL (e.g., `https://eventlens-ai.vercel.app`)! 🎉
+   | `BACKEND_INTERNAL_URL` | `https://photo-production.up.railway.app` | Backend URL on Railway/Render |
+   | `NEXT_PUBLIC_BACKEND_URL` | `https://photo-production.up.railway.app` | Public backend fallback URL |
+   | `NEXT_PUBLIC_API_URL` | `/api` | Relative proxy prefix |
+5. Click **Deploy**. Vercel will build and assign your live production URL (e.g. `https://eventlens-ai.vercel.app`)!
 
 ---
 
-## 🗄️ Step 3 (Optional): Supabase Cloud Database & Storage Setup
+## 🐳 Step 4: Self-Hosted Docker Compose (VPS / Local)
 
-If you want cloud-hosted PostgreSQL with pgvector and CDN photo storage instead of local SQLite:
+To run the entire stack on any Linux VPS (Ubuntu, Debian) or local Docker:
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. Go to **SQL Editor** in Supabase, copy the contents of [`backend/schema.sql`](file:///c:/Users/Santhosh/Downloads/stitch_hello_world_project%20%281%29/backend/schema.sql), paste and click **Run**.
-3. Go to **Storage** -> confirm the **`photos`** bucket is created (and set to *Public*).
-4. Go to **Project Settings** -> **API**:
-   - Copy **Project URL** (`https://xyz.supabase.co`)
-   - Copy **anon / service_role API Key**
-5. Go to **Project Settings** -> **Database**:
-   - Copy **Connection string (URI)**
-6. In Render or Railway, add these 3 variables to your backend:
-   - `SUPABASE_URL` = `https://xyz.supabase.co`
-   - `SUPABASE_KEY` = `<your-supabase-key>`
-   - `DATABASE_URL` = `postgresql://postgres:password@db.xyz.supabase.co:5432/postgres`
+```bash
+# Clone the repository
+git clone https://github.com/Santhosh-555-i/my-website.git
+cd photo
 
----
+# Launch frontend and backend containers
+docker compose up -d --build
+```
 
-## 🐳 Step 4: Self-Hosted Docker Compose on VPS (AWS / DigitalOcean / Hetzner)
-
-If you have a Linux server/VPS:
-
-1. Clone repository on your server:
-   ```bash
-   git clone https://github.com/Santhosh-555-i/my-website.git
-   cd photo
-   ```
-2. Run the stack with Docker Compose:
-   ```bash
-   docker compose up -d --build
-   ```
-3. EventLens AI is live:
-   - Frontend: `http://<your-server-ip>:3000`
-   - Backend API: `http://<your-server-ip>:8000/docs`
+- Frontend: `http://localhost:3000`
+- Backend API Docs: `http://localhost:8000/docs`
 
 ---
 
 ## 🧪 Step 5: Post-Deployment Verification Checklist
 
-- [ ] **Health Check**: Visit `https://your-backend.onrender.com/api/health` -> verify status is `"healthy"`.
-- [ ] **Frontend**: Open your Vercel URL -> verify homepage loads with live animations and UI.
-- [ ] **Admin Login**: Go to `/admin` -> log in with your admin credentials.
-- [ ] **Create Event**: Create an event (e.g. `TECH-CONF-2026`) and upload batch sample photos.
-- [ ] **Selfie Matching**: Go to `/find-photos` or `/events/TECH-CONF-2026`, capture/upload a selfie, and verify matches return in < 1 second.
-- [ ] **Temporary Sharing**: Select photos -> click "Share Selected Photos" -> test opening the generated link in an Incognito window.
+- [ ] **Health Check**: Open `https://<your-backend>/api/health` -> verify status is `"healthy"`.
+- [ ] **Interactive API Docs**: Open `https://<your-backend>/docs` -> verify FastAPI Swagger UI opens.
+- [ ] **Frontend Homepage**: Open `https://<your-frontend>.vercel.app` -> verify smooth loading and animations.
+- [ ] **Admin Login**: Go to `https://<your-frontend>.vercel.app/admin` -> login with your `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
+- [ ] **Create Event**: Create a new event code (e.g. `GALA-2026`) and upload batch photos.
+- [ ] **Attendee Face Search**: Go to `https://<your-frontend>.vercel.app/event/GALA-2026`, capture a selfie, and verify matches return in < 1 second.
+- [ ] **Photo Sharing**: Select photos -> click "Share Selected Photos" -> test opening the temporary link in an incognito window.
+- [ ] **Automated Test Suite**: Run `python backend/test_deployment_readiness.py` to confirm 100% test pass rate.

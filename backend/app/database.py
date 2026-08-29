@@ -12,6 +12,15 @@ from app.config import settings
 
 pwd_context = None  # passlib replaced by direct bcrypt calls below
 
+def is_valid_uuid(val) -> bool:
+    if not val:
+        return False
+    try:
+        uuid.UUID(str(val).strip())
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
+
 class DatabaseService:
     def __init__(self):
         if settings.DB_MODE == "supabase":
@@ -270,9 +279,18 @@ class DatabaseService:
 
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("events").select("id").or_(
-                    f"event_code.ilike.{raw},event_code.ilike.{unquoted},title.ilike.{raw},title.ilike.{unquoted},id.eq.{raw}"
-                ).limit(1).execute()
+                or_filters = [
+                    f"event_code.ilike.{raw}",
+                    f"event_code.ilike.{unquoted}",
+                    f"title.ilike.{raw}",
+                    f"title.ilike.{unquoted}",
+                ]
+                if is_valid_uuid(raw):
+                    or_filters.append(f"id.eq.{raw}")
+                if is_valid_uuid(unquoted) and unquoted != raw:
+                    or_filters.append(f"id.eq.{unquoted}")
+
+                res = self.supabase.table("events").select("id").or_(",".join(or_filters)).limit(1).execute()
                 if res.data:
                     return res.data[0]["id"]
                 
@@ -289,13 +307,14 @@ class DatabaseService:
             
             cursor.execute("""
                 SELECT id FROM events 
-                WHERE id = ? 
+                WHERE UPPER(id) = UPPER(?) 
+                   OR UPPER(id) = UPPER(?)
                    OR UPPER(event_code) = UPPER(?) 
                    OR UPPER(event_code) = UPPER(?)
                    OR UPPER(title) = UPPER(?)
                    OR UPPER(title) = UPPER(?)
                 LIMIT 1
-            """, (raw, raw, unquoted, raw, unquoted))
+            """, (raw, unquoted, raw, unquoted, raw, unquoted))
             row = cursor.fetchone()
             
             if not row:
@@ -348,9 +367,18 @@ class DatabaseService:
 
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("events").select("*").or_(
-                    f"event_code.ilike.{raw},event_code.ilike.{unquoted},title.ilike.{raw},title.ilike.{unquoted},id.eq.{raw}"
-                ).execute()
+                or_filters = [
+                    f"event_code.ilike.{raw}",
+                    f"event_code.ilike.{unquoted}",
+                    f"title.ilike.{raw}",
+                    f"title.ilike.{unquoted}",
+                ]
+                if is_valid_uuid(raw):
+                    or_filters.append(f"id.eq.{raw}")
+                if is_valid_uuid(unquoted) and unquoted != raw:
+                    or_filters.append(f"id.eq.{unquoted}")
+
+                res = self.supabase.table("events").select("*").or_(",".join(or_filters)).execute()
                 if res.data:
                     event = res.data[0]
                     p_res = self.supabase.table("photos").select("id", count="exact").eq("event_id", event["id"]).execute()
@@ -381,8 +409,8 @@ class DatabaseService:
                    OR UPPER(event_code) = UPPER(?) 
                    OR UPPER(title) = UPPER(?) 
                    OR UPPER(title) = UPPER(?)
-                   OR id = ? 
-                   OR id = ?
+                   OR UPPER(id) = UPPER(?) 
+                   OR UPPER(id) = UPPER(?)
                 LIMIT 1
             """, (raw, unquoted, raw, unquoted, raw, unquoted))
             row = cursor.fetchone()
@@ -476,6 +504,7 @@ class DatabaseService:
     def insert_photo_and_embeddings(
         self, event_id: str, image_url: str, thumbnail_url: str, faces: List[Dict]
     ) -> Dict:
+        actual_event_id = self.resolve_event_id(event_id) or event_id
         photo_id = str(uuid.uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
 
@@ -483,7 +512,7 @@ class DatabaseService:
             try:
                 self.supabase.table("photos").insert({
                     "id": photo_id,
-                    "event_id": event_id,
+                    "event_id": actual_event_id,
                     "image_url": image_url,
                     "thumbnail_url": thumbnail_url,
                     "created_at": created_at
@@ -495,7 +524,7 @@ class DatabaseService:
                     embedding_rows.append({
                         "id": emb_id,
                         "photo_id": photo_id,
-                        "event_id": event_id,
+                        "event_id": actual_event_id,
                         "embedding": face["embedding"],
                         "bounding_box": face["bounding_box"]
                     })
@@ -504,7 +533,7 @@ class DatabaseService:
 
                 return {
                     "id": photo_id,
-                    "event_id": event_id,
+                    "event_id": actual_event_id,
                     "image_url": image_url,
                     "thumbnail_url": thumbnail_url,
                     "created_at": created_at,
@@ -517,22 +546,22 @@ class DatabaseService:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO photos (id, event_id, image_url, thumbnail_url, created_at) VALUES (?, ?, ?, ?, ?)",
-                (photo_id, event_id, image_url, thumbnail_url, created_at)
+                (photo_id, actual_event_id, image_url, thumbnail_url, created_at)
             )
             for face in faces:
                 emb_id = str(uuid.uuid4())
                 cursor.execute(
                     "INSERT INTO face_embeddings (id, photo_id, event_id, embedding_json, bounding_box_json) VALUES (?, ?, ?, ?, ?)",
-                    (emb_id, photo_id, event_id, json.dumps(face["embedding"]), json.dumps(face["bounding_box"]))
+                    (emb_id, photo_id, actual_event_id, json.dumps(face["embedding"]), json.dumps(face["bounding_box"]))
                 )
             conn.commit()
             conn.close()
 
-            self.invalidate_event_cache(event_id)
+            self.invalidate_event_cache(actual_event_id)
 
             return {
                 "id": photo_id,
-                "event_id": event_id,
+                "event_id": actual_event_id,
                 "image_url": image_url,
                 "thumbnail_url": thumbnail_url,
                 "created_at": created_at,
@@ -590,10 +619,11 @@ class DatabaseService:
     def match_selfie_vector(
         self, event_id: str, selfie_vector: List[float], threshold: float = 0.55
     ) -> List[Dict]:
+        actual_event_id = self.resolve_event_id(event_id) or event_id
         if settings.DB_MODE == "supabase":
             try:
                 rpc_res = self.supabase.rpc("match_face_embeddings", {
-                    "target_event_id": event_id,
+                    "target_event_id": actual_event_id,
                     "query_embedding": selfie_vector,
                     "match_threshold": threshold,
                     "match_count": 50
@@ -754,12 +784,13 @@ class DatabaseService:
         token = secrets.token_urlsafe(32)
         created_at = datetime.now(timezone.utc)
         expires_at = created_at + timedelta(hours=expiry_hours)
+        actual_event_id = self.resolve_event_id(event_id) or event_id
 
         if settings.DB_MODE == "supabase":
             try:
                 self.supabase.table("share_tokens").insert({
                     "token": token,
-                    "event_id": event_id,
+                    "event_id": actual_event_id,
                     "photo_ids_json": json.dumps(photo_ids),
                     "created_at": created_at.isoformat(),
                     "expires_at": expires_at.isoformat(),
@@ -774,7 +805,7 @@ class DatabaseService:
             cursor.execute("""
                 INSERT INTO share_tokens (token, event_id, photo_ids_json, created_at, expires_at, is_revoked)
                 VALUES (?, ?, ?, ?, ?, 0)
-            """, (token, event_id, json.dumps(photo_ids), created_at.isoformat(), expires_at.isoformat()))
+            """, (token, actual_event_id, json.dumps(photo_ids), created_at.isoformat(), expires_at.isoformat()))
             conn.commit()
             conn.close()
             return token
@@ -954,8 +985,9 @@ class DatabaseService:
 
     # --- EVENT SETTINGS (PGRST116 Safe Fallback) ---
     def get_event_settings(self, event_id: str) -> Dict:
+        actual_event_id = self.resolve_event_id(event_id) or event_id
         default_settings = {
-            "event_id": event_id,
+            "event_id": actual_event_id,
             "similarity_threshold": 0.35,
             "retention_days": 90,
             "selfie_search_enabled": 1,
@@ -963,7 +995,7 @@ class DatabaseService:
         }
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("event_settings").select("*").eq("event_id", event_id).maybe_single().execute()
+                res = self.supabase.table("event_settings").select("*").eq("event_id", actual_event_id).maybe_single().execute()
                 if res.data:
                     return res.data
                 return default_settings
@@ -974,7 +1006,7 @@ class DatabaseService:
                 conn = sqlite3.connect(self.db_path)
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM event_settings WHERE event_id = ?", (event_id,))
+                cursor.execute("SELECT * FROM event_settings WHERE event_id = ?", (actual_event_id,))
                 row = cursor.fetchone()
                 conn.close()
                 if row:
@@ -984,16 +1016,17 @@ class DatabaseService:
                 return default_settings
 
     def update_event_settings(self, event_id: str, similarity_threshold: float, retention_days: int, selfie_search_enabled: bool, downloads_enabled: bool) -> Dict:
+        actual_event_id = self.resolve_event_id(event_id) or event_id
         if settings.DB_MODE == "supabase":
             try:
                 self.supabase.table("event_settings").upsert({
-                    "event_id": event_id,
+                    "event_id": actual_event_id,
                     "similarity_threshold": similarity_threshold,
                     "retention_days": retention_days,
                     "selfie_search_enabled": int(selfie_search_enabled),
                     "downloads_enabled": int(downloads_enabled)
                 }).execute()
-                return self.get_event_settings(event_id)
+                return self.get_event_settings(actual_event_id)
             except Exception as e:
                 raise RuntimeError(f"[Database Error] Supabase update_event_settings failed: {e}")
         else:
@@ -1007,9 +1040,9 @@ class DatabaseService:
                     retention_days = excluded.retention_days,
                     selfie_search_enabled = excluded.selfie_search_enabled,
                     downloads_enabled = excluded.downloads_enabled
-            """, (event_id, similarity_threshold, retention_days, int(selfie_search_enabled), int(downloads_enabled)))
+            """, (actual_event_id, similarity_threshold, retention_days, int(selfie_search_enabled), int(downloads_enabled)))
             conn.commit()
             conn.close()
-            return self.get_event_settings(event_id)
+            return self.get_event_settings(actual_event_id)
 
 db_service = DatabaseService()
