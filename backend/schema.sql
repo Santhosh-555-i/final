@@ -177,17 +177,43 @@ END;
 $$;
 
 -- =========================================================
--- Storage Bucket initialization (Optional SQL setup)
+-- Row Level Security (RLS) & Security Policies
 -- =========================================================
-INSERT INTO storage.buckets (id, name, public) 
-VALUES ('photos', 'photos', true) 
-ON CONFLICT (id) DO NOTHING;
+ALTER TABLE IF EXISTS public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.photos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.person_clusters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.face_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.share_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.event_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.sync_jobs ENABLE ROW LEVEL SECURITY;
 
+-- Allow public read access to public event galleries
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE policyname = 'Public Access Photos' AND tablename = 'objects'
-    ) THEN
-        CREATE POLICY "Public Access Photos" ON storage.objects FOR SELECT USING (bucket_id = 'photos');
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select events' AND tablename = 'events') THEN
+        CREATE POLICY "Allow public select events" ON public.events FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select photos' AND tablename = 'photos') THEN
+        CREATE POLICY "Allow public select photos" ON public.photos FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select person_clusters' AND tablename = 'person_clusters') THEN
+        CREATE POLICY "Allow public select person_clusters" ON public.person_clusters FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select event_settings' AND tablename = 'event_settings') THEN
+        CREATE POLICY "Allow public select event_settings" ON public.event_settings FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to face_embeddings' AND tablename = 'face_embeddings') THEN
+        CREATE POLICY "Allow service_role full access to face_embeddings" ON public.face_embeddings USING (auth.role() = 'service_role');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to share_tokens' AND tablename = 'share_tokens') THEN
+        CREATE POLICY "Allow service_role full access to share_tokens" ON public.share_tokens USING (auth.role() = 'service_role');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to audit_logs' AND tablename = 'audit_logs') THEN
+        CREATE POLICY "Allow service_role full access to audit_logs" ON public.audit_logs USING (auth.role() = 'service_role');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to sync_jobs' AND tablename = 'sync_jobs') THEN
+        CREATE POLICY "Allow service_role full access to sync_jobs" ON public.sync_jobs USING (auth.role() = 'service_role');
     END IF;
 END $$;
+
