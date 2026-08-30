@@ -217,3 +217,9 @@ BEGIN
     END IF;
 END $$;
 
+-- 9. Storage Buckets & Policies for Photo Storage
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('photos', 'photos', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+

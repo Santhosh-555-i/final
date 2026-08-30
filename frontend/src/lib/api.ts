@@ -431,7 +431,7 @@ export async function indexFacesAdmin(eventId: string, forceReindex = false): Pr
 export async function searchFaceApi(
   eventIdOrCode: string,
   selfieFile: File | Blob | string,
-  threshold = 0.68
+  threshold = 0.55
 ): Promise<MatchResponseData> {
   let compressedSelfie: File;
   if (typeof selfieFile === "string") {
@@ -642,7 +642,7 @@ export async function getEventSettings(eventId: string): Promise<EventSettingsDa
   if (!res.ok) {
     return {
       event_id: eventId,
-      similarity_threshold: 0.68,
+      similarity_threshold: 0.55,
       retention_days: 90,
       selfie_search_enabled: 1,
       downloads_enabled: 1,

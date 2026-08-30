@@ -45,8 +45,8 @@ class Settings:
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     LOCAL_STORAGE_DIR: str = os.path.join(BASE_DIR, "storage_data")
     
-    # Vector Search Threshold
-    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.68"))
+    # Vector Search Threshold (Calibrated for InceptionResnetV1 VGGFace2)
+    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.55"))
 
     # Admin Authentication
     ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")

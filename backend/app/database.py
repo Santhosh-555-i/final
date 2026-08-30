@@ -491,9 +491,18 @@ class DatabaseService:
 
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).order("created_at", desc=True).range(offset, offset+limit-1).execute()
+                res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).order("created_at", desc=True).range(offset, offset + limit * 2).execute()
                 photos = res.data or []
-                return [self._format_photo_record(p) for p in photos]
+                formatted = [self._format_photo_record(p) for p in photos]
+                
+                # Strict deduplication by normalized image key / photo id
+                unique_photos = {}
+                for p in formatted:
+                    raw_img = p.get("image_url") or ""
+                    key = os.path.basename(raw_img).lower().strip() if raw_img else str(p.get("id", ""))
+                    if key not in unique_photos:
+                        unique_photos[key] = p
+                return list(unique_photos.values())[:limit]
             except Exception as e:
                 raise RuntimeError(f"[Database Error] Supabase get_event_photos failed: {e}")
         else:
@@ -504,13 +513,22 @@ class DatabaseService:
                 """SELECT id, event_id, image_url, thumbnail_url, created_at 
                    FROM photos 
                    WHERE event_id = ? 
-                   ORDER BY created_at DESC 
-                   LIMIT ? OFFSET ?""",
-                (actual_event_id, limit, offset)
+                   ORDER BY created_at DESC""",
+                (actual_event_id,)
             )
             rows = cursor.fetchall()
             conn.close()
-            return [self._format_photo_record(dict(r)) for r in rows]
+            formatted = [self._format_photo_record(dict(r)) for r in rows]
+            
+            # Strict deduplication by normalized image key / photo id
+            unique_photos = {}
+            for p in formatted:
+                raw_img = p.get("image_url") or ""
+                key = os.path.basename(raw_img).lower().strip() if raw_img else str(p.get("id", ""))
+                if key not in unique_photos:
+                    unique_photos[key] = p
+            all_unique = list(unique_photos.values())
+            return all_unique[offset:offset+limit]
 
     def insert_face_embeddings_for_photo(
         self, photo_id: str, event_id: str, faces: List[Dict], image_url: str = ""
@@ -1009,10 +1027,11 @@ class DatabaseService:
                 except Exception as fallback_err:
                     print(f"[Vector Search Error] Direct Supabase fallback error: {fallback_err}")
 
-            # Deduplicate by photo_id taking highest similarity
+            # Deduplicate by normalized image key / photo_id taking highest similarity
             unique_matches = {}
             for m in matches:
-                key = m["photo_id"]
+                raw_img = m.get("image_url") or ""
+                key = (os.path.basename(raw_img).lower().strip() if raw_img else "") or str(m.get("photo_id", ""))
                 if key not in unique_matches or m["similarity"] > unique_matches[key]["similarity"]:
                     unique_matches[key] = m
 
