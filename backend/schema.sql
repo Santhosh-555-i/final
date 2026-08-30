@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
 -- =========================================================
 -- Vector Matching RPC Stored Function
 -- =========================================================
+DROP FUNCTION IF EXISTS match_face_embeddings(UUID, vector, FLOAT, INT);
+DROP FUNCTION IF EXISTS match_face_embeddings(UUID, vector(512), FLOAT, INT);
+DROP FUNCTION IF EXISTS match_face_embeddings;
+
 CREATE OR REPLACE FUNCTION match_face_embeddings(
     target_event_id UUID,
     query_embedding vector(512),
@@ -138,6 +142,10 @@ BEGIN
     LIMIT match_count;
 END;
 $$;
+
+DROP FUNCTION IF EXISTS match_faces(vector, FLOAT, INT);
+DROP FUNCTION IF EXISTS match_faces(vector(512), FLOAT, INT);
+DROP FUNCTION IF EXISTS match_faces;
 
 CREATE OR REPLACE FUNCTION match_faces(
     query_embedding vector(512),
