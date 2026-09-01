@@ -6,7 +6,7 @@ import hashlib
 import urllib.parse
 import numpy as np
 from datetime import datetime, timezone
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from passlib.context import CryptContext
 from app.config import settings
 
@@ -476,13 +476,33 @@ class DatabaseService:
             conn.close()
             return events
 
+    def _format_photo_record(self, p: Dict) -> Dict:
+        if not p:
+            return p
+        from app.storage import storage_service
+        raw_img = p.get("image_url", "")
+        raw_thumb = p.get("thumbnail_url", "")
+        p["image_url"] = storage_service.resolve_image_url(raw_img, is_thumbnail=False)
+        p["thumbnail_url"] = storage_service.resolve_image_url(raw_thumb or raw_img, is_thumbnail=True)
+        return p
+
     def get_event_photos(self, event_id: str, limit: int = 200, offset: int = 0) -> List[Dict]:
         actual_event_id = self.resolve_event_id(event_id) or event_id
 
         if settings.DB_MODE == "supabase":
             try:
-                res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).order("created_at", desc=True).range(offset, offset+limit-1).execute()
-                return res.data or []
+                res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).order("created_at", desc=True).range(offset, offset + limit * 2).execute()
+                photos = res.data or []
+                formatted = [self._format_photo_record(p) for p in photos]
+                
+                # Strict deduplication by normalized image key / photo id
+                unique_photos = {}
+                for p in formatted:
+                    raw_img = p.get("image_url") or ""
+                    key = os.path.basename(raw_img).lower().strip() if raw_img else str(p.get("id", ""))
+                    if key not in unique_photos:
+                        unique_photos[key] = p
+                return list(unique_photos.values())[:limit]
             except Exception as e:
                 raise RuntimeError(f"[Database Error] Supabase get_event_photos failed: {e}")
         else:
@@ -493,13 +513,262 @@ class DatabaseService:
                 """SELECT id, event_id, image_url, thumbnail_url, created_at 
                    FROM photos 
                    WHERE event_id = ? 
-                   ORDER BY created_at DESC 
-                   LIMIT ? OFFSET ?""",
-                (actual_event_id, limit, offset)
+                   ORDER BY created_at DESC""",
+                (actual_event_id,)
             )
             rows = cursor.fetchall()
             conn.close()
-            return [dict(r) for r in rows]
+            formatted = [self._format_photo_record(dict(r)) for r in rows]
+            
+            # Strict deduplication by normalized image key / photo id
+            unique_photos = {}
+            for p in formatted:
+                raw_img = p.get("image_url") or ""
+                key = os.path.basename(raw_img).lower().strip() if raw_img else str(p.get("id", ""))
+                if key not in unique_photos:
+                    unique_photos[key] = p
+            all_unique = list(unique_photos.values())
+            return all_unique[offset:offset+limit]
+
+    def insert_face_embeddings_for_photo(
+        self, photo_id: str, event_id: str, faces: List[Dict], image_url: str = ""
+    ) -> int:
+        """
+        Inserts 512-d facial embeddings for a photo with schema resilience.
+        Supports both modern schema (photo_id, event_id, embedding, bounding_box)
+        and legacy schema (image_name, image_url, embedding).
+        """
+        if not faces:
+            return 0
+
+        actual_event_id = self.resolve_event_id(event_id) or event_id
+        clean_img_name = os.path.basename(image_url) if image_url else f"photo_{photo_id}.jpg"
+
+        if settings.DB_MODE == "supabase":
+            embedding_rows = []
+            for face in faces:
+                emb = face.get("embedding")
+                if not emb or len(emb) != 512:
+                    continue
+                row = {
+                    "photo_id": photo_id,
+                    "event_id": actual_event_id,
+                    "embedding": emb,
+                    "bounding_box": face.get("bounding_box")
+                }
+                embedding_rows.append(row)
+
+            if not embedding_rows:
+                return 0
+
+            # Attempt 1: Full modern schema (id, photo_id, event_id, embedding, bounding_box)
+            try:
+                self.supabase.table("face_embeddings").insert(embedding_rows).execute()
+                print(f"[Face Indexing Pipeline] Inserted {len(embedding_rows)} face embedding(s) into Supabase for photo {photo_id}")
+                return len(embedding_rows)
+            except Exception as e1:
+                print(f"[Face Indexing Notice] Full schema insert attempt: {e1}. Retrying with adapted schema...")
+
+            # Attempt 2: Minimal modern schema (photo_id, event_id, embedding)
+            try:
+                minimal_rows = [
+                    {"photo_id": r["photo_id"], "event_id": r["event_id"], "embedding": r["embedding"]}
+                    for r in embedding_rows
+                ]
+                self.supabase.table("face_embeddings").insert(minimal_rows).execute()
+                print(f"[Face Indexing Pipeline] Inserted {len(minimal_rows)} face embedding(s) (minimal modern) for photo {photo_id}")
+                return len(minimal_rows)
+            except Exception as e2:
+                print(f"[Face Indexing Notice] Minimal modern schema insert attempt: {e2}")
+
+            # Attempt 3: Legacy schema with image_name / image_url
+            try:
+                legacy_rows = [
+                    {
+                        "image_name": clean_img_name,
+                        "image_url": image_url or clean_img_name,
+                        "embedding": r["embedding"]
+                    }
+                    for r in embedding_rows
+                ]
+                self.supabase.table("face_embeddings").insert(legacy_rows).execute()
+                print(f"[Face Indexing Pipeline] Inserted {len(legacy_rows)} face embedding(s) (legacy format) for photo {photo_id}")
+                return len(legacy_rows)
+            except Exception as e3:
+                print(f"[Face Indexing Error] All Supabase face_embeddings insert attempts failed: {e3}")
+                return 0
+        else:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            count = 0
+            for face in faces:
+                emb = face.get("embedding")
+                if not emb or len(emb) != 512:
+                    continue
+                emb_id = str(uuid.uuid4())
+                cursor.execute(
+                    "INSERT INTO face_embeddings (id, photo_id, event_id, embedding_json, bounding_box_json) VALUES (?, ?, ?, ?, ?)",
+                    (emb_id, photo_id, actual_event_id, json.dumps(emb), json.dumps(face.get("bounding_box")))
+                )
+                count += 1
+            conn.commit()
+            conn.close()
+            self.invalidate_event_cache(actual_event_id)
+            return count
+
+    def backfill_missing_embeddings(self, event_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Scans all photos (or photos in a specific event), detects photos that lack
+        face embeddings in public.face_embeddings, downloads their image bytes,
+        extracts 512-d FaceNet embeddings, and stores them in public.face_embeddings.
+        """
+        from app.storage import storage_service
+        from app.ml_engine import ml_engine
+
+        print(f"[Face Backfill] Starting face embedding audit and backfill (event_id={event_id})...")
+        actual_event_id = self.resolve_event_id(event_id) if event_id else None
+
+        photos_to_process = []
+        if settings.DB_MODE == "supabase":
+            try:
+                # 1. Fetch all photos
+                query = self.supabase.table("photos").select("id, event_id, image_url, thumbnail_url")
+                if actual_event_id:
+                    query = query.eq("event_id", actual_event_id)
+                p_res = query.order("created_at", desc=True).limit(500).execute()
+                all_photos = p_res.data or []
+
+                # 2. Fetch existing photo_ids from face_embeddings
+                fe_query = self.supabase.table("face_embeddings").select("photo_id")
+                if actual_event_id:
+                    fe_query = fe_query.eq("event_id", actual_event_id)
+                fe_res = fe_query.execute()
+                existing_pids = {r["photo_id"] for r in (fe_res.data or []) if r.get("photo_id")}
+
+                # Filter photos that need embeddings
+                for p in all_photos:
+                    if p["id"] not in existing_pids:
+                        photos_to_process.append(p)
+            except Exception as e:
+                print(f"[Face Backfill Error] Supabase photo scan failed: {e}")
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            if actual_event_id:
+                cursor.execute("""
+                    SELECT p.id, p.event_id, p.image_url, p.thumbnail_url
+                    FROM photos p
+                    LEFT JOIN face_embeddings fe ON p.id = fe.photo_id
+                    WHERE p.event_id = ? AND fe.id IS NULL
+                """, (actual_event_id,))
+            else:
+                cursor.execute("""
+                    SELECT p.id, p.event_id, p.image_url, p.thumbnail_url
+                    FROM photos p
+                    LEFT JOIN face_embeddings fe ON p.id = fe.photo_id
+                    WHERE fe.id IS NULL
+                """)
+            photos_to_process = [dict(r) for r in cursor.fetchall()]
+            conn.close()
+
+        total_scanned = len(photos_to_process)
+        print(f"[Face Backfill] Found {total_scanned} photo(s) without face embeddings. Beginning processing...")
+
+        processed_count = 0
+        total_faces_detected = 0
+        total_embeddings_stored = 0
+        skipped_count = 0
+        errors = []
+        diagnostics_log = []
+
+        for idx, p in enumerate(photos_to_process, 1):
+            pid = p["id"]
+            pevt = p["event_id"]
+            pimg = p["image_url"]
+            diag = {
+                "photo_id": pid,
+                "image_url": pimg,
+                "download_success": False,
+                "download_bytes": 0,
+                "pil_decode_success": False,
+                "image_size": None,
+                "channel_mode": None,
+                "opencv_shape": None,
+                "faces_detected": 0,
+                "embeddings_stored": 0,
+                "error": None
+            }
+            try:
+                # 1. Storage Download
+                img_bytes = storage_service.get_photo_bytes(pimg)
+                if not img_bytes or len(img_bytes) < 100:
+                    skipped_count += 1
+                    diag["error"] = f"Failed to load image bytes (byte count: {len(img_bytes) if img_bytes else 0})"
+                    print(f"[Photo Diagnostic {idx}/{total_scanned}] FAILED download | ID={pid} | URL={pimg}")
+                    diagnostics_log.append(diag)
+                    continue
+
+                diag["download_success"] = True
+                diag["download_bytes"] = len(img_bytes)
+
+                # 2. PIL & OpenCV Decode Diagnostics
+                try:
+                    pil_img = Image.open(io.BytesIO(img_bytes))
+                    diag["pil_decode_success"] = True
+                    diag["image_size"] = f"{pil_img.width}x{pil_img.height}"
+                    diag["channel_mode"] = pil_img.mode
+                except Exception as p_err:
+                    diag["pil_decode_error"] = str(p_err)
+
+                try:
+                    cv_img = cv2.imdecode(np.frombuffer(img_bytes, np.uint8), cv2.IMREAD_COLOR)
+                    if cv_img is not None:
+                        diag["opencv_shape"] = f"{cv_img.shape[1]}x{cv_img.shape[0]}x{cv_img.shape[2]}"
+                except Exception as c_err:
+                    diag["opencv_decode_error"] = str(c_err)
+
+                # 3. Face Detection & Embedding Extraction
+                faces = ml_engine.extract_faces_and_embeddings(img_bytes, allow_fallback=True)
+                diag["faces_detected"] = len(faces)
+                total_faces_detected += len(faces)
+
+                # 4. Insert into database
+                stored = self.insert_face_embeddings_for_photo(
+                    photo_id=pid,
+                    event_id=pevt,
+                    faces=faces,
+                    image_url=pimg
+                )
+                diag["embeddings_stored"] = stored
+                total_embeddings_stored += stored
+                processed_count += 1
+
+                print(
+                    f"[Photo Diagnostic {idx}/{total_scanned}] ID={pid} | URL={pimg} | "
+                    f"Bytes={len(img_bytes)} | Dim={diag['image_size']} | Mode={diag['channel_mode']} | "
+                    f"Faces={len(faces)} | Stored={stored}"
+                )
+
+            except Exception as proc_err:
+                diag["error"] = str(proc_err)
+                errors.append(f"Photo {pid}: {proc_err}")
+                print(f"[Photo Diagnostic Error {idx}/{total_scanned}] Photo {pid}: {proc_err}")
+
+            diagnostics_log.append(diag)
+
+        summary = {
+            "success": True,
+            "total_scanned": total_scanned,
+            "photos_processed": processed_count,
+            "faces_detected": total_faces_detected,
+            "embeddings_created": total_embeddings_stored,
+            "photos_skipped": skipped_count,
+            "errors": errors,
+            "diagnostics": diagnostics_log
+        }
+        print(f"[Face Backfill Completed] Summary: {summary}")
+        return summary
 
     def insert_photo_and_embeddings(
         self, event_id: str, image_url: str, thumbnail_url: str, faces: List[Dict]
@@ -518,20 +787,15 @@ class DatabaseService:
                     "created_at": created_at
                 }).execute()
 
-                embedding_rows = []
-                for face in faces:
-                    emb_id = str(uuid.uuid4())
-                    embedding_rows.append({
-                        "id": emb_id,
-                        "photo_id": photo_id,
-                        "event_id": actual_event_id,
-                        "embedding": face["embedding"],
-                        "bounding_box": face["bounding_box"]
-                    })
-                if embedding_rows:
-                    self.supabase.table("face_embeddings").insert(embedding_rows).execute()
+                # Insert facial embeddings using multi-schema resilient pipeline
+                self.insert_face_embeddings_for_photo(
+                    photo_id=photo_id,
+                    event_id=actual_event_id,
+                    faces=faces,
+                    image_url=image_url
+                )
 
-                return {
+                record = {
                     "id": photo_id,
                     "event_id": actual_event_id,
                     "image_url": image_url,
@@ -539,6 +803,7 @@ class DatabaseService:
                     "created_at": created_at,
                     "faces_detected": len(faces)
                 }
+                return self._format_photo_record(record)
             except Exception as e:
                 raise RuntimeError(f"[Database Error] Supabase insert photo failed: {e}")
         else:
@@ -549,10 +814,13 @@ class DatabaseService:
                 (photo_id, actual_event_id, image_url, thumbnail_url, created_at)
             )
             for face in faces:
+                emb = face.get("embedding")
+                if not emb or len(emb) != 512:
+                    continue
                 emb_id = str(uuid.uuid4())
                 cursor.execute(
                     "INSERT INTO face_embeddings (id, photo_id, event_id, embedding_json, bounding_box_json) VALUES (?, ?, ?, ?, ?)",
-                    (emb_id, photo_id, actual_event_id, json.dumps(face["embedding"]), json.dumps(face["bounding_box"]))
+                    (emb_id, photo_id, actual_event_id, json.dumps(emb), json.dumps(face.get("bounding_box")))
                 )
             conn.commit()
             conn.close()
@@ -619,37 +887,156 @@ class DatabaseService:
     def match_selfie_vector(
         self, event_id: str, selfie_vector: List[float], threshold: float = 0.55
     ) -> List[Dict]:
+        from app.storage import storage_service
         actual_event_id = self.resolve_event_id(event_id) or event_id
+
+        # Normalize selfie vector
+        v_selfie = np.array(selfie_vector, dtype=np.float32)
+        norm_selfie = np.linalg.norm(v_selfie)
+        if norm_selfie > 0:
+            v_selfie = v_selfie / norm_selfie
+        selfie_list = v_selfie.tolist()
+
         if settings.DB_MODE == "supabase":
+            matches = []
+            rpc_success = False
+
+            # 1. Try match_faces RPC (existing function in Supabase)
             try:
-                rpc_res = self.supabase.rpc("match_face_embeddings", {
-                    "target_event_id": actual_event_id,
-                    "query_embedding": selfie_vector,
-                    "match_threshold": threshold,
+                rpc_res = self.supabase.rpc("match_faces", {
+                    "query_embedding": selfie_list,
+                    "match_threshold": float(threshold),
                     "match_count": 50
                 }).execute()
                 if rpc_res.data:
-                    matches = []
+                    rpc_success = True
                     for row in rpc_res.data:
-                        p_res = self.supabase.table("photos").select("*").eq("id", row["photo_id"]).single().execute()
-                        if p_res.data:
+                        sim_val = round(float(row.get("similarity", 0.0)), 4)
+                        pid = row.get("photo_id")
+                        candidate_id = row.get("id")
+                        
+                        # Find matching photo record belonging to target event
+                        p_res = None
+                        if pid:
+                            p_res = self.supabase.table("photos").select("*").eq("id", pid).eq("event_id", actual_event_id).maybe_single().execute()
+                        
+                        if not (p_res and p_res.data) and candidate_id:
+                            # Try candidate_id as photo_id first
+                            p_res = self.supabase.table("photos").select("*").eq("id", candidate_id).eq("event_id", actual_event_id).maybe_single().execute()
+                            # If not found, candidate_id may be the face_embeddings row id
+                            if not (p_res and p_res.data):
+                                fe_row = self.supabase.table("face_embeddings").select("photo_id, event_id").eq("id", candidate_id).maybe_single().execute()
+                                if fe_row and fe_row.data and fe_row.data.get("photo_id"):
+                                    real_pid = fe_row.data["photo_id"]
+                                    p_res = self.supabase.table("photos").select("*").eq("id", real_pid).eq("event_id", actual_event_id).maybe_single().execute()
+                        
+                        if not (p_res and p_res.data) and (row.get("image_url") or row.get("image_name")):
+                            img_ref = row.get("image_url") or row.get("image_name")
+                            p_res = self.supabase.table("photos").select("*").eq("event_id", actual_event_id).ilike("image_url", f"%{img_ref}%").maybe_single().execute()
+
+                        if p_res and p_res.data:
+                            p_formatted = self._format_photo_record(p_res.data)
                             matches.append({
-                                "photo_id": row["photo_id"],
-                                "image_url": p_res.data["image_url"],
-                                "thumbnail_url": p_res.data["thumbnail_url"],
-                                "similarity": round(float(row["similarity"]), 4),
+                                "photo_id": p_res.data["id"],
+                                "image_url": p_formatted["image_url"],
+                                "thumbnail_url": p_formatted["thumbnail_url"],
+                                "similarity": sim_val,
                                 "bounding_box": row.get("bounding_box")
                             })
-                    return matches
-                return []
             except Exception as e:
-                raise RuntimeError(f"[Database Error] Supabase match_selfie_vector failed: {e}")
-        else:
-            v_selfie = np.array(selfie_vector, dtype=np.float32)
-            norm_selfie = np.linalg.norm(v_selfie)
-            if norm_selfie > 0:
-                v_selfie = v_selfie / norm_selfie
+                print(f"[Vector Search Notice] match_faces RPC attempt: {e}")
 
+            # 2. Try match_face_embeddings RPC (if target_event_id version is available)
+            if not rpc_success:
+                try:
+                    rpc_res = self.supabase.rpc("match_face_embeddings", {
+                        "target_event_id": actual_event_id,
+                        "query_embedding": selfie_list,
+                        "match_threshold": float(threshold),
+                        "match_count": 50
+                    }).execute()
+                    if rpc_res.data:
+                        rpc_success = True
+                        for row in rpc_res.data:
+                            p_res = self.supabase.table("photos").select("*").eq("id", row["photo_id"]).maybe_single().execute()
+                            if p_res and p_res.data:
+                                p_formatted = self._format_photo_record(p_res.data)
+                                matches.append({
+                                    "photo_id": row["photo_id"],
+                                    "image_url": p_formatted["image_url"],
+                                    "thumbnail_url": p_formatted["thumbnail_url"],
+                                    "similarity": round(float(row["similarity"]), 4),
+                                    "bounding_box": row.get("bounding_box")
+                                })
+                except Exception as e:
+                    print(f"[Vector Search Notice] match_face_embeddings RPC attempt: {e}")
+
+            # 3. Direct Event Vector Search Fallback (Zero RPC dependency, guarantees 100% event isolation)
+            if not matches:
+                try:
+                    # Query all face embeddings for this specific event
+                    fe_res = self.supabase.table("face_embeddings").select("id, photo_id, embedding, bounding_box").eq("event_id", actual_event_id).execute()
+                    fe_data = fe_res.data or []
+                    
+                    if fe_data:
+                        # Collect unique photo IDs
+                        p_ids = list({f["photo_id"] for f in fe_data if f.get("photo_id")})
+                        photo_map = {}
+                        if p_ids:
+                            p_res = self.supabase.table("photos").select("*").in_("id", p_ids).execute()
+                            for p in (p_res.data or []):
+                                photo_map[p["id"]] = self._format_photo_record(p)
+
+                        best_matches_by_photo = {}
+                        for fe in fe_data:
+                            raw_emb = fe.get("embedding")
+                            if not raw_emb:
+                                continue
+                            if isinstance(raw_emb, str):
+                                try:
+                                    raw_emb = json.loads(raw_emb)
+                                except Exception:
+                                    continue
+                            
+                            v_emb = np.array(raw_emb, dtype=np.float32)
+                            norm_emb = np.linalg.norm(v_emb)
+                            if norm_emb > 0:
+                                v_emb = v_emb / norm_emb
+
+                            sim_score = float(np.dot(v_selfie, v_emb))
+                            if sim_score >= threshold:
+                                pid = fe.get("photo_id")
+                                p_info = photo_map.get(pid)
+                                if p_info:
+                                    if pid not in best_matches_by_photo or sim_score > best_matches_by_photo[pid]["similarity"]:
+                                        bbox = fe.get("bounding_box")
+                                        if isinstance(bbox, str):
+                                            try:
+                                                bbox = json.loads(bbox)
+                                            except Exception:
+                                                pass
+                                        best_matches_by_photo[pid] = {
+                                            "photo_id": pid,
+                                            "image_url": p_info["image_url"],
+                                            "thumbnail_url": p_info["thumbnail_url"],
+                                            "similarity": round(sim_score, 4),
+                                            "bounding_box": bbox
+                                        }
+
+                        matches = list(best_matches_by_photo.values())
+                except Exception as fallback_err:
+                    print(f"[Vector Search Error] Direct Supabase fallback error: {fallback_err}")
+
+            # Deduplicate by normalized image key / photo_id taking highest similarity
+            unique_matches = {}
+            for m in matches:
+                raw_img = m.get("image_url") or ""
+                key = (os.path.basename(raw_img).lower().strip() if raw_img else "") or str(m.get("photo_id", ""))
+                if key not in unique_matches or m["similarity"] > unique_matches[key]["similarity"]:
+                    unique_matches[key] = m
+
+            return sorted(unique_matches.values(), key=lambda x: x["similarity"], reverse=True)
+        else:
             actual_event_id = self.resolve_event_id(event_id) or event_id
             cache_entry = self._get_or_load_event_vector_matrix(actual_event_id)
 
@@ -666,15 +1053,16 @@ class DatabaseService:
                 sim_val = float(similarity)
                 m = metas[idx]
                 pid = m["photo_id"]
-                img_url = m["image_url"]
-                photo_key = os.path.basename(img_url).lower().strip() if img_url else pid
+                resolved_img = storage_service.resolve_image_url(m["image_url"], is_thumbnail=False)
+                resolved_thumb = storage_service.resolve_image_url(m["thumbnail_url"] or m["image_url"], is_thumbnail=True)
+                photo_key = os.path.basename(resolved_img).lower().strip() if resolved_img else pid
 
                 if sim_val >= threshold:
                     if photo_key not in strict_matches_by_photo or sim_val > strict_matches_by_photo[photo_key]["similarity"]:
                         strict_matches_by_photo[photo_key] = {
                             "photo_id": pid,
-                            "image_url": img_url,
-                            "thumbnail_url": m["thumbnail_url"],
+                            "image_url": resolved_img,
+                            "thumbnail_url": resolved_thumb,
                             "similarity": round(sim_val, 4),
                             "bounding_box": m["bounding_box"]
                         }
@@ -831,7 +1219,7 @@ class DatabaseService:
                 for pid in photo_ids:
                     p_res = self.supabase.table("photos").select("id, image_url, thumbnail_url, created_at").eq("id", pid).maybe_single().execute()
                     if p_res.data:
-                        photos.append(p_res.data)
+                        photos.append(self._format_photo_record(p_res.data))
 
                 return {
                     "token": token,
@@ -867,7 +1255,7 @@ class DatabaseService:
                 cursor.execute("SELECT id, image_url, thumbnail_url, created_at FROM photos WHERE id = ?", (pid,))
                 p = cursor.fetchone()
                 if p:
-                    photos.append(dict(p))
+                    photos.append(self._format_photo_record(dict(p)))
 
             conn.close()
             return {

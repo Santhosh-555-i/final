@@ -112,10 +112,14 @@ CREATE TABLE IF NOT EXISTS sync_jobs (
 -- =========================================================
 -- Vector Matching RPC Stored Function
 -- =========================================================
+DROP FUNCTION IF EXISTS match_face_embeddings(UUID, vector, FLOAT, INT);
+DROP FUNCTION IF EXISTS match_face_embeddings(UUID, vector(512), FLOAT, INT);
+DROP FUNCTION IF EXISTS match_face_embeddings;
+
 CREATE OR REPLACE FUNCTION match_face_embeddings(
     target_event_id UUID,
     query_embedding vector(512),
-    match_threshold FLOAT DEFAULT 0.68,
+    match_threshold FLOAT DEFAULT 0.55,
     match_count INT DEFAULT 50
 )
 RETURNS TABLE (
@@ -139,18 +143,83 @@ BEGIN
 END;
 $$;
 
--- =========================================================
--- Storage Bucket initialization (Optional SQL setup)
--- =========================================================
-INSERT INTO storage.buckets (id, name, public) 
-VALUES ('photos', 'photos', true) 
-ON CONFLICT (id) DO NOTHING;
+DROP FUNCTION IF EXISTS match_faces(vector, FLOAT, INT);
+DROP FUNCTION IF EXISTS match_faces(vector(512), FLOAT, INT);
+DROP FUNCTION IF EXISTS match_faces;
 
+CREATE OR REPLACE FUNCTION match_faces(
+    query_embedding vector(512),
+    match_threshold FLOAT DEFAULT 0.55,
+    match_count INT DEFAULT 50
+)
+RETURNS TABLE (
+    id UUID,
+    photo_id UUID,
+    event_id UUID,
+    similarity FLOAT,
+    bounding_box JSONB
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        fe.id,
+        fe.photo_id,
+        fe.event_id,
+        1 - (fe.embedding <=> query_embedding) AS similarity,
+        fe.bounding_box
+    FROM face_embeddings fe
+    WHERE 1 - (fe.embedding <=> query_embedding) >= match_threshold
+    ORDER BY similarity DESC
+    LIMIT match_count;
+END;
+$$;
+
+-- =========================================================
+-- Row Level Security (RLS) & Security Policies
+-- =========================================================
+ALTER TABLE IF EXISTS public.events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.photos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.person_clusters ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.face_embeddings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.share_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.event_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.sync_jobs ENABLE ROW LEVEL SECURITY;
+
+-- Allow public read access to public event galleries
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_policies WHERE policyname = 'Public Access Photos' AND tablename = 'objects'
-    ) THEN
-        CREATE POLICY "Public Access Photos" ON storage.objects FOR SELECT USING (bucket_id = 'photos');
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select events' AND tablename = 'events') THEN
+        CREATE POLICY "Allow public select events" ON public.events FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select photos' AND tablename = 'photos') THEN
+        CREATE POLICY "Allow public select photos" ON public.photos FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select person_clusters' AND tablename = 'person_clusters') THEN
+        CREATE POLICY "Allow public select person_clusters" ON public.person_clusters FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow public select event_settings' AND tablename = 'event_settings') THEN
+        CREATE POLICY "Allow public select event_settings" ON public.event_settings FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to face_embeddings' AND tablename = 'face_embeddings') THEN
+        CREATE POLICY "Allow service_role full access to face_embeddings" ON public.face_embeddings USING (auth.role() = 'service_role');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to share_tokens' AND tablename = 'share_tokens') THEN
+        CREATE POLICY "Allow service_role full access to share_tokens" ON public.share_tokens USING (auth.role() = 'service_role');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to audit_logs' AND tablename = 'audit_logs') THEN
+        CREATE POLICY "Allow service_role full access to audit_logs" ON public.audit_logs USING (auth.role() = 'service_role');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Allow service_role full access to sync_jobs' AND tablename = 'sync_jobs') THEN
+        CREATE POLICY "Allow service_role full access to sync_jobs" ON public.sync_jobs USING (auth.role() = 'service_role');
     END IF;
 END $$;
+
+-- 9. Storage Buckets & Policies for Photo Storage
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('photos', 'photos', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+

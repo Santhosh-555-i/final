@@ -127,8 +127,8 @@ export default function ClientEventSelfiePage() {
     };
   }, [isUnlocked, useCamera, capturedBlob]);
 
-  // Ultra-Fast Client-Side Compression for Mobile Wi-Fi (< 100KB payload)
-  const compressImageForAI = async (blobOrFile: Blob | File, maxDim = 800, quality = 0.85): Promise<Blob> => {
+  // High-Fidelity Client-Side Optimization for AI Face Recognition (< 150KB payload)
+  const compressImageForAI = async (blobOrFile: Blob | File, maxDim = 1080, quality = 0.90): Promise<Blob> => {
     return new Promise((resolve) => {
       const img = new Image();
       const url = URL.createObjectURL(blobOrFile);
@@ -172,9 +172,9 @@ export default function ClientEventSelfiePage() {
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    const maxDim = 800;
-    let vw = video.videoWidth || 640;
-    let vh = video.videoHeight || 640;
+    const maxDim = 1080;
+    let vw = video.videoWidth || 720;
+    let vh = video.videoHeight || 720;
     if (vw > maxDim || vh > maxDim) {
       if (vw > vh) {
         vh = Math.round((vh * maxDim) / vw);
@@ -189,6 +189,8 @@ export default function ClientEventSelfiePage() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(
       (blob) => {
@@ -202,7 +204,7 @@ export default function ClientEventSelfiePage() {
         }
       },
       "image/jpeg",
-      0.85
+      0.90
     );
   };
 

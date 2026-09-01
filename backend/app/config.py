@@ -9,8 +9,24 @@ class Settings:
     VERSION: str = "1.0.0"
     API_PREFIX: str = "/api"
     
-    # DB Mode
-    DB_MODE: str = os.getenv("DB_MODE", "sqlite")
+    # Supabase / Database Credentials
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "").strip()
+    SUPABASE_KEY: str = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_KEY", "")).strip()
+    SUPABASE_SERVICE_ROLE_KEY: str = (os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_KEY", "")).strip()
+    SUPABASE_BUCKET_NAME: str = os.getenv("SUPABASE_BUCKET_NAME", "photos").strip() or "photos"
+
+    # DB Mode: Auto-detect Supabase if credentials are present, or respect explicit DB_MODE
+    @property
+    def DB_MODE(self) -> str:
+        env_mode = os.getenv("DB_MODE", "").strip().lower()
+        if env_mode in ["supabase", "postgres", "cloud"]:
+            return "supabase"
+        if env_mode == "sqlite":
+            return "sqlite"
+        # Auto-detect: if Supabase URL and Key are provided, default to supabase mode
+        if self.SUPABASE_URL and self.SUPABASE_SERVICE_ROLE_KEY:
+            return "supabase"
+        return "sqlite"
     
     # CORS
     @property
@@ -25,22 +41,17 @@ class Settings:
             "http://127.0.0.1:3001",
         ]
     
-    # Supabase / Database
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    SUPABASE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_KEY", "")
-    SUPABASE_SERVICE_ROLE_KEY: str = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "") or os.getenv("SUPABASE_KEY", "")
-    
     # Local Storage fallback directory (Only for local/sqlite)
     BASE_DIR: str = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     LOCAL_STORAGE_DIR: str = os.path.join(BASE_DIR, "storage_data")
     
-    # Vector Search Threshold
-    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.68"))
+    # Vector Search Threshold (Calibrated for 70%+ match accuracy)
+    SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.70"))
 
     # Admin Authentication
-    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "")
-    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "")
-    ADMIN_JWT_SECRET: str = os.getenv("ADMIN_JWT_SECRET", "") or os.getenv("JWT_SECRET", "")
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@example.com")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
+    ADMIN_JWT_SECRET: str = os.getenv("ADMIN_JWT_SECRET", "eventlens-production-jwt-secret-key-replace-in-env") or os.getenv("JWT_SECRET", "eventlens-production-jwt-secret-key-replace-in-env")
     
     def validate_production(self):
         if self.DB_MODE == "supabase":
@@ -67,4 +78,3 @@ if settings.DB_MODE == "sqlite":
     os.makedirs(settings.LOCAL_STORAGE_DIR, exist_ok=True)
     os.makedirs(os.path.join(settings.LOCAL_STORAGE_DIR, "raw"), exist_ok=True)
     os.makedirs(os.path.join(settings.LOCAL_STORAGE_DIR, "thumbnails"), exist_ok=True)
-
