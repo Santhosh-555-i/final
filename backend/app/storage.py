@@ -170,15 +170,38 @@ class StorageService:
 
     def get_photo_bytes(self, url_or_path: str) -> Optional[bytes]:
         """
-        Fetches photo binary bytes from local disk, Supabase Storage, or remote URL.
-        Guarantees that ZIP downloads and image proxy endpoints always receive valid data.
+        Fetches photo binary bytes from Google Drive CDN stream, remote URL, Supabase Storage, or local disk.
+        Guarantees that ZIP downloads and image proxy endpoints always receive valid data with zero required disk storage.
         """
         if not url_or_path:
             return None
 
+        # 1. Check if Google Drive file ID or Google CDN URL
+        try:
+            from app.google_drive_api import google_drive_helper
+            fid, ftype = google_drive_helper.extract_id(url_or_path)
+            if fid:
+                g_data = google_drive_helper.download_file_bytes(fid)
+                if g_data and len(g_data) > 0:
+                    return g_data
+        except Exception:
+            pass
+
+        # 2. Direct HTTP fetch from full remote URL (Google Drive CDN, Cloudinary, S3, Dropbox, etc.)
+        if url_or_path.startswith("http://") or url_or_path.startswith("https://"):
+            try:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                }
+                resp = requests.get(url_or_path, timeout=12, headers=headers, allow_redirects=True)
+                if resp.status_code == 200 and len(resp.content) > 0:
+                    return resp.content
+            except Exception as http_err:
+                print(f"[Storage] Remote HTTP fetch error for {url_or_path}: {http_err}")
+
         clean_filename = self.extract_clean_filename(url_or_path)
 
-        # 1. Check local storage directory first if it exists
+        # 3. Check local storage directory if file exists
         if clean_filename:
             is_thumb = clean_filename.startswith("thumb_")
             sub_folder = "thumbnails" if is_thumb else "raw"
@@ -190,33 +213,24 @@ class StorageService:
                 except Exception:
                     pass
 
-        # 2. If Supabase client is available, try downloading via Supabase storage SDK across path candidates
+        # 4. If Supabase client is available, try downloading via Supabase storage SDK across path candidates
         if self.supabase and clean_filename:
             for candidate in [clean_filename, f"raw/{clean_filename}", f"photos/{clean_filename}"]:
                 try:
                     data = self.supabase.storage.from_(self.bucket_name).download(candidate)
                     if data and len(data) > 0:
                         return data
-                except Exception as sb_err:
+                except Exception:
                     pass
 
-        # 3. Direct HTTP fetch from full remote URL
-        if url_or_path.startswith("http://") or url_or_path.startswith("https://"):
-            try:
-                resp = requests.get(url_or_path, timeout=10)
-                if resp.status_code == 200 and len(resp.content) > 0:
-                    return resp.content
-            except Exception as http_err:
-                print(f"[Storage] Remote HTTP fetch error for {url_or_path}: {http_err}")
-
-        # 4. Direct HTTP fetch from Supabase CDN public URL
+        # 5. Direct HTTP fetch from Supabase CDN public URL
         if settings.SUPABASE_URL and clean_filename:
             cdn_url = f"{settings.SUPABASE_URL.rstrip('/')}/storage/v1/object/public/{self.bucket_name}/{clean_filename}"
             try:
                 resp = requests.get(cdn_url, timeout=10)
                 if resp.status_code == 200 and len(resp.content) > 0:
                     return resp.content
-            except Exception as cdn_err:
+            except Exception:
                 pass
 
         return None

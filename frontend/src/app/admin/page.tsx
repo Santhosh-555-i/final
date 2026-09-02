@@ -31,8 +31,8 @@ export default function AdminDashboardPage() {
 
   // Admin Auth State
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(false);
-  const [adminEmailInput, setAdminEmailInput] = useState(DESIGNATED_ADMIN_EMAIL);
-  const [adminPasswordInput, setAdminPasswordInput] = useState("element2018");
+  const [adminEmailInput, setAdminEmailInput] = useState("");
+  const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginError, setLoginError] = useState("");
   const [adminEmailDisplay, setAdminEmailDisplay] = useState(DESIGNATED_ADMIN_EMAIL);
@@ -616,7 +616,7 @@ export default function AdminDashboardPage() {
             <span className="text-[#c0c1ff] font-bold font-mono">{DESIGNATED_ADMIN_EMAIL}</span>
           </p>
 
-          <form onSubmit={handleAdminLogin} className="w-full flex flex-col gap-4 text-left">
+          <form onSubmit={handleAdminLogin} className="w-full flex flex-col gap-4 text-left" autoComplete="off">
             <div>
               <label className="text-xs font-semibold text-[#c7c4d7] mb-1 block">Admin Email Address</label>
               <div className="relative flex items-center">
@@ -626,6 +626,8 @@ export default function AdminDashboardPage() {
                   value={adminEmailInput}
                   onChange={(e) => setAdminEmailInput(e.target.value)}
                   placeholder="admin@example.com"
+                  autoComplete="off"
+                  spellCheck={false}
                   required
                   className="w-full bg-[#131b2e] border border-white/15 rounded-xl py-3 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-[#c0c1ff] transition-colors"
                 />
@@ -640,7 +642,8 @@ export default function AdminDashboardPage() {
                   type="password"
                   value={adminPasswordInput}
                   onChange={(e) => setAdminPasswordInput(e.target.value)}
-                  placeholder="Passcode (default: element2018)"
+                  placeholder="Enter security passcode"
+                  autoComplete="new-password"
                   required
                   className="w-full bg-[#131b2e] border border-white/15 rounded-xl py-3 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-[#c0c1ff] transition-colors"
                 />

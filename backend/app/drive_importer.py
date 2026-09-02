@@ -102,57 +102,90 @@ class GoogleDriveImporter:
                 if u.startswith("http://") or u.startswith("https://"):
                     direct_urls.add(u)
 
-            # 1. Download Folders
+            # Collection of targets to process: list of dicts {id, image_url, thumbnail_url, get_bytes_fn}
+            work_items: List[Dict] = []
+
+            # 1. Scrape Folder file IDs directly without downloading files to storage
             for folder_id in folder_ids:
-                print(f"[Drive Import] Processing Google Drive Folder ID: {folder_id}")
-                f_paths = self._download_drive_folder(folder_id, clean_url, temp_dir)
-                downloaded_image_paths.extend(f_paths)
+                print(f"[Drive Import] Scanning Google Drive Folder ID: {folder_id} for direct CDN streaming...")
+                folder_items = google_drive_helper.list_folder_files(folder_id)
+                for item in folder_items:
+                    fid = item.get("id")
+                    if fid:
+                        work_items.append({
+                            "id": fid,
+                            "image_url": f"https://lh3.googleusercontent.com/d/{fid}=w2048",
+                            "thumbnail_url": f"https://lh3.googleusercontent.com/d/{fid}=w600",
+                            "type": "drive_id",
+                            "source": fid
+                        })
 
-            # 2. Download Individual Drive Files concurrently
-            if file_ids:
-                print(f"[Drive Import] Downloading {len(file_ids)} direct Drive files concurrently...")
-                with ThreadPoolExecutor(max_workers=8) as executor:
-                    futures = {
-                        executor.submit(self._download_single_drive_file, fid, temp_dir): fid
-                        for fid in file_ids
-                    }
-                    for future in as_completed(futures):
-                        try:
-                            path = future.result()
-                            if path:
-                                downloaded_image_paths.append(path)
-                        except Exception as e:
-                            print(f"[Drive Importer] File download error: {e}")
+            # 2. Add individual Drive file IDs
+            for fid in file_ids:
+                if not any(w["id"] == fid for w in work_items):
+                    work_items.append({
+                        "id": fid,
+                        "image_url": f"https://lh3.googleusercontent.com/d/{fid}=w2048",
+                        "thumbnail_url": f"https://lh3.googleusercontent.com/d/{fid}=w600",
+                        "type": "drive_id",
+                        "source": fid
+                    })
 
-            # 3. Download Direct URLs
-            if direct_urls:
-                with ThreadPoolExecutor(max_workers=8) as executor:
-                    futures = {
-                        executor.submit(self._download_direct_url, u, temp_dir): u
-                        for u in direct_urls
-                    }
-                    for future in as_completed(futures):
-                        try:
-                            path = future.result()
-                            if path:
-                                downloaded_image_paths.append(path)
-                        except Exception as e:
-                            print(f"[Drive Importer] Direct URL download error: {e}")
+            # 3. Add direct URLs
+            for u in direct_urls:
+                u_fid, _ = google_drive_helper.extract_id(u)
+                if u_fid:
+                    work_items.append({
+                        "id": u_fid,
+                        "image_url": f"https://lh3.googleusercontent.com/d/{u_fid}=w2048",
+                        "thumbnail_url": f"https://lh3.googleusercontent.com/d/{u_fid}=w600",
+                        "type": "drive_id",
+                        "source": u_fid
+                    })
+                else:
+                    work_items.append({
+                        "id": str(uuid.uuid4()),
+                        "image_url": u,
+                        "thumbnail_url": u,
+                        "type": "direct_url",
+                        "source": u
+                    })
 
-            # 4. Fallback: If 0 files found and we had candidate folder IDs, try downloading them as single files
-            if not downloaded_image_paths and folder_ids:
-                for fid in folder_ids:
-                    path = self._download_single_drive_file(fid, temp_dir)
-                    if path:
-                        downloaded_image_paths.append(path)
+            # 4. Fallback: If scraping returned 0 items from folder, use concurrent folder downloader
+            if not work_items and (folder_ids or file_ids):
+                for folder_id in folder_ids:
+                    f_paths = self._download_drive_folder(folder_id, clean_url, temp_dir)
+                    downloaded_image_paths.extend(f_paths)
 
-            # Deduplicate paths
-            downloaded_image_paths = list(dict.fromkeys(downloaded_image_paths))
+                for fid in file_ids:
+                    p = self._download_single_drive_file(fid, temp_dir)
+                    if p:
+                        downloaded_image_paths.append(p)
 
-            if not downloaded_image_paths:
-                err_msg = "Could not download images from the provided Google Drive link. Please ensure folder sharing is set to 'Anyone with the link can view' (Public) or provide valid image URLs."
+                downloaded_image_paths = list(dict.fromkeys(downloaded_image_paths))
+                for p in downloaded_image_paths:
+                    # Extract file_id if present in filename
+                    f_match = re.search(r'drive_([a-zA-Z0-9_-]{20,})', p)
+                    if f_match:
+                        fid = f_match.group(1)
+                        img_u = f"https://lh3.googleusercontent.com/d/{fid}=w2048"
+                        thumb_u = f"https://lh3.googleusercontent.com/d/{fid}=w600"
+                    else:
+                        img_u = storage_service.resolve_image_url(os.path.basename(p), is_thumbnail=False)
+                        thumb_u = storage_service.resolve_image_url(os.path.basename(p), is_thumbnail=True)
+
+                    work_items.append({
+                        "id": str(uuid.uuid4()),
+                        "image_url": img_u,
+                        "thumbnail_url": thumb_u,
+                        "type": "local_path",
+                        "source": p
+                    })
+
+            if not work_items:
+                err_msg = "Could not find accessible images in the provided Google Drive link. Please ensure folder sharing is set to 'Anyone with the link can view' (Public)."
                 if task_id:
-                    task_tracker.update_task(task_id, status="failed", error=err_msg, progress_message="Download failed.")
+                    task_tracker.update_task(task_id, status="failed", error=err_msg, progress_message="Folder scan failed.")
                 return {
                     "success": False,
                     "imported_count": 0,
@@ -160,8 +193,8 @@ class GoogleDriveImporter:
                     "message": err_msg
                 }
 
-            total_photos = len(downloaded_image_paths)
-            print(f"[Drive Import] Successfully downloaded {total_photos} images. Starting FaceNet vector indexing...")
+            total_photos = len(work_items)
+            print(f"[Drive Import] Found {total_photos} photos. Starting in-memory zero-storage ML analysis...")
 
             if task_id:
                 task_tracker.update_task(
@@ -169,65 +202,71 @@ class GoogleDriveImporter:
                     status="indexing",
                     total=total_photos,
                     current=0,
-                    progress_message=f"Indexing 0/{total_photos} photos..."
+                    progress_message=f"Analyzing and indexing 0/{total_photos} photos directly from Drive..."
                 )
 
-            # Process downloaded images concurrently for ultra-fast indexing (5-8 seconds)
+            # In-memory streaming analysis: 0 Supabase storage, 0 disk storage
             imported_count = 0
             total_faces = 0
 
-            def _process_single_photo(img_path: str) -> Optional[int]:
+            def _process_item(item: Dict) -> Optional[int]:
                 try:
-                    if not os.path.exists(img_path) or os.path.getsize(img_path) < 500:
+                    img_bytes = None
+                    item_type = item.get("type")
+                    source = item.get("source")
+
+                    if item_type == "drive_id":
+                        img_bytes = google_drive_helper.download_file_bytes(source)
+                    elif item_type == "direct_url":
+                        headers = {"User-Agent": "Mozilla/5.0"}
+                        resp = requests.get(source, timeout=12, headers=headers)
+                        if resp.status_code == 200:
+                            img_bytes = resp.content
+                    elif item_type == "local_path" and os.path.exists(source):
+                        with open(source, "rb") as f:
+                            img_bytes = f.read()
+
+                    if not img_bytes or not GoogleDriveHelper.is_valid_image_bytes(img_bytes):
                         return None
-                    with open(img_path, "rb") as f:
-                        image_bytes = f.read()
 
-                    if not GoogleDriveHelper.is_valid_image_bytes(image_bytes):
-                        return None
+                    # Extract 512-d FaceNet embeddings directly in memory
+                    faces = ml_engine.extract_faces_and_embeddings(img_bytes)
 
-                    # 1. Save raw image & thumbnail
-                    filename = os.path.basename(img_path)
-                    image_url, thumbnail_url = storage_service.save_photo_and_thumbnail(image_bytes, filename)
-
-                    # 2. Extract faces & 512-d embeddings
-                    faces = ml_engine.extract_faces_and_embeddings(image_bytes)
-
-                    # 3. Store in DB
+                    # Store in DB pointing to Google Drive CDN URLs (Zero Supabase storage used)
                     db_service.insert_photo_and_embeddings(
                         event_id=event_id,
-                        image_url=image_url,
-                        thumbnail_url=thumbnail_url,
+                        image_url=item["image_url"],
+                        thumbnail_url=item["thumbnail_url"],
                         faces=faces
                     )
-                    del image_bytes
+
+                    del img_bytes
                     return len(faces)
-                except Exception as e:
-                    print(f"[Drive Import Warning] Failed to process photo {img_path}: {e}")
+                except Exception as item_err:
+                    print(f"[Drive Import Warning] Failed processing item {item.get('id')}: {item_err}")
                     return None
 
-            with ThreadPoolExecutor(max_workers=4, thread_name_prefix="drive_indexer") as index_exec:
-                futures = {index_exec.submit(_process_single_photo, p): p for p in downloaded_image_paths}
+            with ThreadPoolExecutor(max_workers=6, thread_name_prefix="drive_streamer") as executor:
+                futures = {executor.submit(_process_item, it): it for it in work_items}
                 for future in as_completed(futures):
-                    face_count = future.result()
-                    if face_count is not None:
+                    face_cnt = future.result()
+                    if face_cnt is not None:
                         imported_count += 1
-                        total_faces += face_count
+                        total_faces += face_cnt
                         if task_id:
                             task_tracker.update_task(
                                 task_id,
                                 current=imported_count,
                                 faces_detected=total_faces,
-                                progress_message=f"Indexing {imported_count}/{total_photos} photos ({total_faces} faces detected)..."
+                                progress_message=f"Analyzed {imported_count}/{total_photos} photos directly from Drive ({total_faces} faces indexed)..."
                             )
 
             # Invalidate event cache so vector search matrix is instantly updated
             db_service.invalidate_event_cache(event_id)
 
-            # Automatically compute person clusters so "People" tab is immediately populated
+            # Compute person clusters
             try:
                 self.clustering_engine.compute_event_clusters(event_id)
-                print(f"[Drive Import] Person clusters computed for event {event_id}.")
             except Exception as e:
                 print(f"[Drive Import Warning] Auto-clustering notice: {e}")
 
@@ -237,7 +276,7 @@ class GoogleDriveImporter:
                     status="completed",
                     current=imported_count,
                     faces_detected=total_faces,
-                    progress_message=f"Indexing complete! {imported_count} photos indexed with {total_faces} face vectors."
+                    progress_message=f"Analysis complete! {imported_count} photos linked from Google Drive with {total_faces} face vectors."
                 )
 
             return {
@@ -245,7 +284,7 @@ class GoogleDriveImporter:
                 "imported_count": imported_count,
                 "total_faces": total_faces,
                 "task_id": task_id,
-                "message": f"Successfully imported {imported_count} photos and indexed {total_faces} face embeddings from Google Drive!"
+                "message": f"Successfully analyzed {imported_count} photos directly from Google Drive (0 MB Supabase storage used) and indexed {total_faces} face embeddings!"
             }
 
         except Exception as ex:
@@ -254,7 +293,7 @@ class GoogleDriveImporter:
             raise ex
 
         finally:
-            # Clean up temp directory
+            # Clean up any temporary files immediately
             shutil.rmtree(temp_dir, ignore_errors=True)
 
     def _download_drive_folder(self, folder_id: str, folder_url: str, output_dir: str) -> List[str]:
