@@ -49,8 +49,8 @@ class Settings:
     SIMILARITY_THRESHOLD: float = float(os.getenv("SIMILARITY_THRESHOLD", "0.70"))
 
     # Admin Authentication
-    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@example.com")
-    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin")
+    ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "santosh2005th@gmail.com")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin@veltraxx2026")
     ADMIN_JWT_SECRET: str = os.getenv("ADMIN_JWT_SECRET", "eventlens-production-jwt-secret-key-replace-in-env") or os.getenv("JWT_SECRET", "eventlens-production-jwt-secret-key-replace-in-env")
     
     def validate_production(self):
@@ -58,16 +58,16 @@ class Settings:
             if not self.SUPABASE_URL or not self.SUPABASE_SERVICE_ROLE_KEY:
                 print("[Config Warning] SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not set. Supabase features will require valid credentials.")
             if not self.ADMIN_EMAIL:
-                self.ADMIN_EMAIL = "admin@example.com"
+                self.ADMIN_EMAIL = "santosh2005th@gmail.com"
             if not self.ADMIN_PASSWORD:
-                self.ADMIN_PASSWORD = "admin"
+                self.ADMIN_PASSWORD = "admin@veltraxx2026"
             if not self.ADMIN_JWT_SECRET:
                 self.ADMIN_JWT_SECRET = "eventlens-production-jwt-secret-key-replace-in-env"
         elif self.DB_MODE == "sqlite":
             if not self.ADMIN_EMAIL:
-                self.ADMIN_EMAIL = "admin@example.com"
+                self.ADMIN_EMAIL = "santosh2005th@gmail.com"
             if not self.ADMIN_PASSWORD:
-                self.ADMIN_PASSWORD = "admin"
+                self.ADMIN_PASSWORD = "admin@veltraxx2026"
             if not self.ADMIN_JWT_SECRET:
                 self.ADMIN_JWT_SECRET = "local-dev-secret-do-not-use-in-prod"
 
